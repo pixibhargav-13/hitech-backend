@@ -98,6 +98,41 @@
                             </configOptions>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>audit-code-gen</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <skipValidateSpec>true</skipValidateSpec>
+                            <inputSpec>${project.basedir}/src/main/resources/audit.yaml</inputSpec>
+                            <generatorName>spring</generatorName>
+                            <apiPackage>com.hitech.erp.api.audit</apiPackage>
+                            <modelPackage>com.hitech.erp.api.audit.model</modelPackage>
+                            <apiNameSuffix>Api</apiNameSuffix>
+                            <generateApiDocumentation>false</generateApiDocumentation>
+                            <nameMappings>true</nameMappings>
+                            <configOptions>
+                                <openApiNullable>false</openApiNullable>
+                                <interfaceOnly>true</interfaceOnly>
+                                <library>spring-boot</library>
+                                <useSpringBoot3>true</useSpringBoot3>
+                                <delegatePattern>false</delegatePattern>
+                                <disallowAdditionalPropertiesIfNotPresent>true</disallowAdditionalPropertiesIfNotPresent>
+                                <documentationProvider>none</documentationProvider>
+                                <ensureUniqueParameters>true</ensureUniqueParameters>
+                                <requestMappingMode>none</requestMappingMode>
+                                <returnSuccessCode>true</returnSuccessCode>
+                                <serializableModel>false</serializableModel>
+                                <sortParamsByRequiredFlag>true</sortParamsByRequiredFlag>
+                                <useOptional>true</useOptional>
+                                <useResponseEntity>true</useResponseEntity>
+                                <useSwaggerUI>false</useSwaggerUI>
+                                <useTags>true</useTags>
+                                <hideGenerationTimestamp>true</hideGenerationTimestamp>
+                            </configOptions>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

@@ -1,0 +1,179 @@
+openapi: 3.0.1
+info:
+  title: Hitech ERP - Audit API
+  description: Read-only audit trail of every state-changing action in the system.
+  version: '1.0'
+servers:
+  - url: http://localhost:8080
+    description: Local Server
+
+tags:
+  - name: audit
+    description: Audit trail
+
+paths:
+  /api/v1/audit-logs:
+    get:
+      tags: [ audit ]
+      summary: Paginated audit trail (newest first)
+      operationId: getAuditLogs
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 25
+        - name: actorUserId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "One of CREATE, UPDATE, DELETE, LOGIN, LOGOUT"
+        - name: entityType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "ISO date (inclusive), e.g. 2026-07-01"
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "ISO date (inclusive)"
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Free text over summary, path and actor"
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPageResponse'
+
+  /api/v1/audit-logs/filters:
+    get:
+      tags: [ audit ]
+      summary: Distinct values available for the audit filters
+      operationId: getAuditFilters
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: Filter options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditFilterOptions'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AuditLogResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        actorUserId:
+          type: integer
+          format: int64
+        actorEmail:
+          type: string
+        actorName:
+          type: string
+        actorRole:
+          type: string
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        summary:
+          type: string
+        httpMethod:
+          type: string
+        path:
+          type: string
+        statusCode:
+          type: integer
+        ipAddress:
+          type: string
+        userAgent:
+          type: string
+        createdAt:
+          type: string
+
+    AuditLogPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    AuditFilterOptions:
+      type: object
+      properties:
+        actions:
+          type: array
+          items:
+            type: string
+        entityTypes:
+          type: array
+          items:
+            type: string
+        actors:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditActor'
+
+    AuditActor:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        email:
+          type: string
