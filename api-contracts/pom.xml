@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.hitech</groupId>
+        <artifactId>hitech-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>api-contracts</artifactId>
+    <description>OpenAPI contracts - generates API interfaces and DTOs at build time</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>user-management-code-gen</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <skipValidateSpec>true</skipValidateSpec>
+                            <inputSpec>${project.basedir}/src/main/resources/user-management.yaml</inputSpec>
+                            <generatorName>spring</generatorName>
+                            <apiPackage>com.hitech.erp.api.usermanagement</apiPackage>
+                            <modelPackage>com.hitech.erp.api.usermanagement.model</modelPackage>
+                            <apiNameSuffix>Api</apiNameSuffix>
+                            <generateApiDocumentation>false</generateApiDocumentation>
+                            <nameMappings>true</nameMappings>
+                            <configOptions>
+                                <openApiNullable>false</openApiNullable>
+                                <interfaceOnly>true</interfaceOnly>
+                                <library>spring-boot</library>
+                                <useSpringBoot3>true</useSpringBoot3>
+                                <delegatePattern>false</delegatePattern>
+                                <disallowAdditionalPropertiesIfNotPresent>true</disallowAdditionalPropertiesIfNotPresent>
+                                <documentationProvider>none</documentationProvider>
+                                <ensureUniqueParameters>true</ensureUniqueParameters>
+                                <requestMappingMode>none</requestMappingMode>
+                                <returnSuccessCode>true</returnSuccessCode>
+                                <serializableModel>false</serializableModel>
+                                <sortParamsByRequiredFlag>true</sortParamsByRequiredFlag>
+                                <useOptional>true</useOptional>
+                                <useResponseEntity>true</useResponseEntity>
+                                <useSwaggerUI>false</useSwaggerUI>
+                                <useTags>true</useTags>
+                                <hideGenerationTimestamp>true</hideGenerationTimestamp>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>project-code-gen</id>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <skipValidateSpec>true</skipValidateSpec>
+                            <inputSpec>${project.basedir}/src/main/resources/project.yaml</inputSpec>
+                            <generatorName>spring</generatorName>
+                            <apiPackage>com.hitech.erp.api.project</apiPackage>
+                            <modelPackage>com.hitech.erp.api.project.model</modelPackage>
+                            <apiNameSuffix>Api</apiNameSuffix>
+                            <generateApiDocumentation>false</generateApiDocumentation>
+                            <nameMappings>true</nameMappings>
+                            <configOptions>
+                                <openApiNullable>false</openApiNullable>
+                                <interfaceOnly>true</interfaceOnly>
+                                <library>spring-boot</library>
+                                <useSpringBoot3>true</useSpringBoot3>
+                                <delegatePattern>false</delegatePattern>
+                                <disallowAdditionalPropertiesIfNotPresent>true</disallowAdditionalPropertiesIfNotPresent>
+                                <documentationProvider>none</documentationProvider>
+                                <ensureUniqueParameters>true</ensureUniqueParameters>
+                                <requestMappingMode>none</requestMappingMode>
+                                <returnSuccessCode>true</returnSuccessCode>
+                                <serializableModel>false</serializableModel>
+                                <sortParamsByRequiredFlag>true</sortParamsByRequiredFlag>
+                                <useOptional>true</useOptional>
+                                <useResponseEntity>true</useResponseEntity>
+                                <useSwaggerUI>false</useSwaggerUI>
+                                <useTags>true</useTags>
+                                <hideGenerationTimestamp>true</hideGenerationTimestamp>
+                            </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

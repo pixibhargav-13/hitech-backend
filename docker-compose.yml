@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hitech-erp-postgres
+    environment:
+      POSTGRES_DB: hitech_erp
+      POSTGRES_USER: hitech
+      POSTGRES_PASSWORD: hitech
+    ports:
+      - "5433:5432"
+    volumes:
+      - hitech-erp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U hitech -d hitech_erp" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hitech-erp-pgdata:

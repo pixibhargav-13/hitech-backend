@@ -1,0 +1,401 @@
+openapi: 3.0.1
+info:
+  title: Hitech ERP - Project API
+  description: Project master data - create, list, update and manage construction projects.
+  version: '1.0'
+servers:
+  - url: http://localhost:8080
+    description: Local Server
+
+tags:
+  - name: project
+    description: Project CRUD and lifecycle
+
+paths:
+  /api/v1/projects:
+    get:
+      tags: [ project ]
+      summary: Paginated list of projects
+      operationId: getProjects
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Projects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPageResponse'
+    post:
+      tags: [ project ]
+      summary: Create a project
+      operationId: createProject
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreateRequest'
+      responses:
+        '200':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+
+  /api/v1/projects/{id}:
+    get:
+      tags: [ project ]
+      summary: Get a project by id
+      operationId: getProjectById
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+    put:
+      tags: [ project ]
+      summary: Update a project
+      operationId: updateProject
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdateRequest'
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectResponse'
+    delete:
+      tags: [ project ]
+      summary: Delete a project
+      operationId: deleteProject
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '204':
+          description: Project deleted
+
+  /api/v1/projects/{projectId}/locations:
+    get:
+      tags: [ location ]
+      summary: List the location structure of a project (flat; build the tree from parentId)
+      operationId: getProjectLocations
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      responses:
+        '200':
+          description: Locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectLocationResponse'
+    post:
+      tags: [ location ]
+      summary: Add a location (or sub-location when parentId is set)
+      operationId: createProjectLocation
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectLocationCreateRequest'
+      responses:
+        '200':
+          description: Location created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectLocationResponse'
+  /api/v1/projects/{projectId}/locations/{locationId}:
+    put:
+      tags: [ location ]
+      summary: Rename a location
+      operationId: updateProjectLocation
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+        - $ref: '#/components/parameters/LocationIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectLocationUpdateRequest'
+      responses:
+        '200':
+          description: Location updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectLocationResponse'
+    delete:
+      tags: [ location ]
+      summary: Delete a location and its sub-locations
+      operationId: deleteProjectLocation
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+        - $ref: '#/components/parameters/LocationIdPath'
+      responses:
+        '204':
+          description: Location deleted
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    ProjectIdPath:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    LocationIdPath:
+      name: locationId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  schemas:
+    ProjectCreateRequest:
+      type: object
+      required: [ name ]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        address:
+          type: string
+        city:
+          type: string
+
+    ProjectUpdateRequest:
+      type: object
+      properties:
+        projectCode:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        stage:
+          type: string
+        status:
+          type: string
+          description: "One of NOT_STARTED, ONGOING, ONHOLD, COMPLETED"
+        health:
+          type: string
+          description: "One of HEALTHY, AT_RISK"
+        customerName:
+          type: string
+        keyPersonnel:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        companyBranch:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        progress:
+          type: integer
+        attendanceRadius:
+          type: integer
+        projectValue:
+          type: number
+          format: double
+        orientation:
+          type: string
+        dimension:
+          type: string
+        scopeOfWork:
+          type: string
+        inAmount:
+          type: number
+          format: double
+        outAmount:
+          type: number
+          format: double
+        todoCount:
+          type: integer
+
+    ProjectResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        projectCode:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        stage:
+          type: string
+        status:
+          type: string
+        health:
+          type: string
+        customerName:
+          type: string
+        keyPersonnel:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        companyBranch:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        progress:
+          type: integer
+        attendanceRadius:
+          type: integer
+        projectValue:
+          type: number
+          format: double
+        orientation:
+          type: string
+        dimension:
+          type: string
+        scopeOfWork:
+          type: string
+        inAmount:
+          type: number
+          format: double
+        outAmount:
+          type: number
+          format: double
+        todoCount:
+          type: integer
+
+    ProjectPageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    ProjectLocationCreateRequest:
+      type: object
+      required: [ name ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        parentId:
+          type: integer
+          format: int64
+          description: Parent location id; omit for a top-level location.
+
+    ProjectLocationUpdateRequest:
+      type: object
+      required: [ name ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    ProjectLocationResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        projectId:
+          type: integer
+          format: int64
+        parentId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        sortOrder:
+          type: integer
