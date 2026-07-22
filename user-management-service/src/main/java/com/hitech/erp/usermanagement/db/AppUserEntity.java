@@ -34,4 +34,9 @@ public class AppUserEntity extends BaseEntity {
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(name = "role_id", nullable = false)
   private RoleEntity role;
+
+  /** Org grouping (Civil, Electrical…). Optional — null until someone assigns one. */
+  @ManyToOne(fetch = FetchType.LAZY)
+  @JoinColumn(name = "department_id")
+  private DepartmentEntity department;
 }

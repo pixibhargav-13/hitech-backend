@@ -14,5 +14,11 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
 
   boolean existsByRoleId(Long roleId);
 
+  boolean existsByDepartmentId(Long departmentId);
+
+  long countByDepartmentId(Long departmentId);
+
+  java.util.List<AppUserEntity> findAllByDepartmentId(Long departmentId);
+
   Page<AppUserEntity> findAll(Pageable pageable);
 }

@@ -1,6 +1,8 @@
 package com.hitech.erp.task.api;
 
 import com.hitech.erp.task.dto.TaskDtos.AttachmentInput;
+import com.hitech.erp.task.dto.TaskDtos.BulkDeleteRequest;
+import com.hitech.erp.task.dto.TaskDtos.BulkPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.CommentInput;
 import com.hitech.erp.task.dto.TaskDtos.TaskPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.TaskResponse;
@@ -65,6 +67,21 @@ public class TaskController {
   public ResponseEntity<TaskResponse> patch(
       @PathVariable("id") Long id, @RequestBody TaskPatchRequest request) {
     return ResponseEntity.ok(taskService.patch(CurrentUser.get(), id, request));
+  }
+
+  /** Apply one change to many tasks at once (bulk edit from the list). */
+  @PatchMapping("/bulk")
+  @PreAuthorize("hasAuthority('TASKOPAD:EDIT')")
+  public ResponseEntity<List<TaskResponse>> bulkPatch(@Valid @RequestBody BulkPatchRequest request) {
+    return ResponseEntity.ok(taskService.bulkPatch(CurrentUser.get(), request));
+  }
+
+  /** Delete many tasks at once. */
+  @PostMapping("/bulk-delete")
+  @PreAuthorize("hasAuthority('TASKOPAD:DELETE')")
+  public ResponseEntity<Void> bulkDelete(@Valid @RequestBody BulkDeleteRequest request) {
+    taskService.bulkDelete(CurrentUser.get(), request);
+    return ResponseEntity.noContent().build();
   }
 
   @DeleteMapping("/{id}")

@@ -23,7 +23,8 @@ public class TeamController {
 
   private final AppUserRepository userRepository;
 
-  public record TeamMember(Long id, String fullName, String roleName, boolean active) {}
+  public record TeamMember(
+      Long id, String fullName, String roleName, boolean active, Long departmentId, String departmentName) {}
 
   @GetMapping
   @PreAuthorize("isAuthenticated()")
@@ -32,7 +33,15 @@ public class TeamController {
     List<TeamMember> team =
         userRepository.findAll().stream()
             .filter(u -> u.isActive())
-            .map(u -> new TeamMember(u.getId(), u.getFullName(), u.getRole().getName(), u.isActive()))
+            .map(
+                u ->
+                    new TeamMember(
+                        u.getId(),
+                        u.getFullName(),
+                        u.getRole().getName(),
+                        u.isActive(),
+                        u.getDepartment() == null ? null : u.getDepartment().getId(),
+                        u.getDepartment() == null ? null : u.getDepartment().getName()))
             .toList();
     return ResponseEntity.ok(team);
   }

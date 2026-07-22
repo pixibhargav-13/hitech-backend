@@ -51,6 +51,13 @@ public class UserController implements UserApi {
   }
 
   @Override
+  @PreAuthorize("hasAuthority('USER_MANAGEMENT:DELETE')")
+  public ResponseEntity<Void> deleteUserPermanently(Long id) {
+    userService.deleteUserPermanently(id);
+    return ResponseEntity.noContent().build();
+  }
+
+  @Override
   @PreAuthorize("hasAuthority('USER_MANAGEMENT:EDIT')")
   public ResponseEntity<Void> updateUserPassword(Long id, PasswordUpdateRequest passwordUpdateRequest) {
     userService.updateUserPassword(id, passwordUpdateRequest.getNewPassword());

@@ -33,6 +33,13 @@ public final class TaskDtos {
       int progress,
       String dueDate,
       boolean draft,
+      boolean pinned,
+      String reminderAt,
+      String recurrenceRule,
+      int recurrenceInterval,
+      String recurrenceUntil,
+      Long seriesId,
+      Long departmentId,
       List<Long> followerIds,
       List<SubtaskDto> subtasks,
       List<CommentDto> comments,
@@ -55,11 +62,25 @@ public final class TaskDtos {
       Integer progress,
       String dueDate,
       Boolean draft,
+      Boolean pinned,
+      String reminderAt,
+      String recurrenceRule,
+      Integer recurrenceInterval,
+      String recurrenceUntil,
+      Long departmentId,
       List<Long> followerIds,
       List<SubtaskInput> subtasks) {}
 
   /** Lightweight inline update from the list/main view — any field optional. */
-  public record TaskPatchRequest(String status, String priority, Integer progress) {}
+  public record TaskPatchRequest(
+      String status, String priority, Integer progress, Boolean pinned, String reminderAt) {}
+
+  /** Apply one change to many tasks at once (bulk actions on the list). */
+  public record BulkPatchRequest(
+      @NotNull List<Long> taskIds, String status, String priority, Boolean pinned, Long assigneeId) {}
+
+  /** Delete many tasks at once. */
+  public record BulkDeleteRequest(@NotNull List<Long> taskIds) {}
 
   public record CommentInput(@NotBlank String text) {}
 

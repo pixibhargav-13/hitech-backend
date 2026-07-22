@@ -67,6 +67,36 @@ public class TaskEntity extends BaseEntity {
   @Column(name = "is_draft", nullable = false)
   private boolean draft = false;
 
+  /** Pinned tasks float to the top of the list. */
+  @Column(name = "is_pinned", nullable = false)
+  private boolean pinned = false;
+
+  /** Optional per-task reminder (ISO datetime string, kept as text like dueDate). */
+  @Column(name = "reminder_at", length = 30)
+  private String reminderAt;
+
+  // ---- Recurrence ----
+  @Enumerated(EnumType.STRING)
+  @Column(name = "recurrence_rule", nullable = false, length = 20)
+  private RecurrenceRule recurrenceRule = RecurrenceRule.NONE;
+
+  /** Repeat every N days/weeks/months. */
+  @Column(name = "recurrence_interval", nullable = false)
+  private int recurrenceInterval = 1;
+
+  /** Optional last date of the series (yyyy-MM-dd); null repeats indefinitely. */
+  @Column(name = "recurrence_until", length = 30)
+  private String recurrenceUntil;
+
+  /** Shared by every occurrence of one repeating task (the first task's id). */
+  @Column(name = "series_id")
+  private Long seriesId;
+
+  /** Owning department. Defaults to the assignee's department, but can be set explicitly so work
+   *  can be handed to a team before a person picks it up. */
+  @Column(name = "department_id")
+  private Long departmentId;
+
   @ElementCollection(fetch = FetchType.EAGER)
   @CollectionTable(name = "task_followers", joinColumns = @JoinColumn(name = "task_id"))
   @Column(name = "user_id", nullable = false)

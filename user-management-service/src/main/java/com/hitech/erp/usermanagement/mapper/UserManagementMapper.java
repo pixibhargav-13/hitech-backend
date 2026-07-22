@@ -41,6 +41,13 @@ public interface UserManagementMapper {
   // Same Lombok boolean-getter quirk as RoleEntity.isSystem: isActive() introspects as property
   // "active", not "isActive", so it needs an explicit expression mapping too.
   @Mapping(target = "isActive", expression = "java(user.isActive())")
+  // Department is optional, so flatten it defensively rather than letting MapStruct walk a null.
+  @Mapping(
+      target = "departmentId",
+      expression = "java(user.getDepartment() == null ? null : user.getDepartment().getId())")
+  @Mapping(
+      target = "departmentName",
+      expression = "java(user.getDepartment() == null ? null : user.getDepartment().getName())")
   UserResponse toUserResponse(AppUserEntity user);
 
   List<UserResponse> toUserResponses(List<AppUserEntity> users);

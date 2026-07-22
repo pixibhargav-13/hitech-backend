@@ -307,6 +307,19 @@ paths:
         '204':
           description: User deactivated
 
+  /api/v1/users/{id}/permanent:
+    delete:
+      tags: [ user ]
+      summary: Permanently delete a user (hard delete - removes the account entirely)
+      operationId: deleteUserPermanently
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: User permanently deleted
+
   /api/v1/users/{id}/password:
     put:
       tags: [ user ]
@@ -492,6 +505,9 @@ components:
         roleId:
           type: integer
           format: int64
+        departmentId:
+          type: integer
+          format: int64
 
     UserUpdateRequest:
       type: object
@@ -501,6 +517,9 @@ components:
         phoneNumber:
           type: string
         roleId:
+          type: integer
+          format: int64
+        departmentId:
           type: integer
           format: int64
         isActive:
@@ -530,6 +549,11 @@ components:
           type: boolean
         role:
           $ref: '#/components/schemas/RoleSummary'
+        departmentId:
+          type: integer
+          format: int64
+        departmentName:
+          type: string
 
     UserPageResponse:
       type: object
