@@ -47,6 +47,7 @@ public class RoleService {
     role.setName(request.getName());
     role.setDescription(request.getDescription());
     role.setSystem(false);
+    role.setReportsToRoleId(validateReportsTo(request.getReportsToRoleId(), null));
     role.setPermissions(resolvePermissions(request.getPermissionIds()));
 
     return mapper.toRoleResponse(roleRepository.save(role));
@@ -63,6 +64,7 @@ public class RoleService {
 
     role.setName(request.getName());
     role.setDescription(request.getDescription());
+    role.setReportsToRoleId(validateReportsTo(request.getReportsToRoleId(), id));
     role.setPermissions(resolvePermissions(request.getPermissionIds()));
 
     return mapper.toRoleResponse(roleRepository.save(role));
@@ -87,6 +89,39 @@ public class RoleService {
     return roleRepository
         .findById(id)
         .orElseThrow(() -> new EntityNotFoundException("Role not found: " + id));
+  }
+
+  /**
+   * Validate a role's proposed parent in the reporting ladder: the parent must exist, a role can't
+   * report to itself, and the chain must not form a loop. Returns the (validated) parent id, or null
+   * for a top-of-ladder role. {@code selfId} is null when creating a brand-new role.
+   */
+  private Long validateReportsTo(Long parentId, Long selfId) {
+    if (parentId == null) {
+      return null;
+    }
+    if (selfId != null && parentId.equals(selfId)) {
+      throw new IllegalArgumentException("A role cannot report to itself");
+    }
+    // Walk up the chain: every ancestor must exist, and we must never loop back to this role.
+    Long cursor = parentId;
+    int guard = 0;
+    while (cursor != null) {
+      if (selfId != null && cursor.equals(selfId)) {
+        throw new IllegalArgumentException("That reporting line would create a loop");
+      }
+      final Long lookup = cursor;
+      RoleEntity ancestor =
+          roleRepository
+              .findById(lookup)
+              .orElseThrow(() -> new EntityNotFoundException("Parent role not found: " + lookup));
+      cursor = ancestor.getReportsToRoleId();
+      if (++guard > 1000) {
+        // Defensive: an existing loop in data should never let us spin forever.
+        throw new IllegalStateException("Reporting hierarchy is too deep or contains a loop");
+      }
+    }
+    return parentId;
   }
 
   private Set<PermissionEntity> resolvePermissions(List<Long> permissionIds) {

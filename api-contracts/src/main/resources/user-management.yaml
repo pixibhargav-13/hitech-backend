@@ -465,6 +465,11 @@ components:
           maxLength: 100
         description:
           type: string
+        reportsToRoleId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Parent role in the org ladder. Null = top of the hierarchy.
         permissionIds:
           type: array
           items:
@@ -483,6 +488,11 @@ components:
           type: string
         isSystem:
           type: boolean
+        reportsToRoleId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Parent role in the org ladder. Null = top of the hierarchy.
         permissions:
           type: array
           items:
@@ -508,6 +518,14 @@ components:
         departmentId:
           type: integer
           format: int64
+        staffType:
+          type: string
+          nullable: true
+          description: OFFICE (not project-based) or SITE (works on project sites).
+        onPayroll:
+          type: boolean
+          default: false
+          description: On payroll — can punch and has a payroll profile.
 
     UserUpdateRequest:
       type: object
@@ -522,6 +540,13 @@ components:
         departmentId:
           type: integer
           format: int64
+        staffType:
+          type: string
+          nullable: true
+          description: OFFICE or SITE.
+        onPayroll:
+          type: boolean
+          description: On payroll — can punch and has a payroll profile.
         isActive:
           type: boolean
 
@@ -554,6 +579,13 @@ components:
           format: int64
         departmentName:
           type: string
+        staffType:
+          type: string
+          nullable: true
+          description: OFFICE or SITE.
+        onPayroll:
+          type: boolean
+          description: On payroll — can punch and has a payroll profile.
 
     UserPageResponse:
       type: object

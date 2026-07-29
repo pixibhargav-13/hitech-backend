@@ -39,4 +39,12 @@ public class AppUserEntity extends BaseEntity {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "department_id")
   private DepartmentEntity department;
+
+  /** OFFICE (not project-based) or SITE (works on project sites). Null until classified. */
+  @Column(name = "staff_type", length = 10)
+  private String staffType;
+
+  /** Whether this member is on payroll — can punch and has a payroll profile. */
+  @Column(name = "on_payroll", nullable = false)
+  private boolean onPayroll;
 }

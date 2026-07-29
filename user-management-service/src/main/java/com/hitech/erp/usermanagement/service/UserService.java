@@ -68,6 +68,8 @@ public class UserService {
     user.setActive(true);
     user.setRole(requireRole(request.getRoleId()));
     user.setDepartment(findDepartment(request.getDepartmentId()));
+    user.setStaffType(request.getStaffType());
+    user.setOnPayroll(Boolean.TRUE.equals(request.getOnPayroll()));
 
     return mapper.toUserResponse(userRepository.save(user));
   }
@@ -90,6 +92,12 @@ public class UserService {
     }
     if (request.getIsActive() != null) {
       user.setActive(request.getIsActive());
+    }
+    if (request.getStaffType() != null) {
+      user.setStaffType(request.getStaffType());
+    }
+    if (request.getOnPayroll() != null) {
+      user.setOnPayroll(request.getOnPayroll());
     }
 
     return mapper.toUserResponse(userRepository.save(user));

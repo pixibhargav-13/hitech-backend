@@ -29,6 +29,14 @@ public class RoleEntity extends BaseEntity {
   @Column(name = "is_system", nullable = false)
   private boolean isSystem;
 
+  /**
+   * Parent role in the org ladder (this role reports to it). Null = top of the hierarchy. Stored as
+   * a plain id rather than a self-association to keep loading simple and avoid recursive fetches;
+   * the frontend builds the tree from the flat list.
+   */
+  @Column(name = "reports_to_role_id")
+  private Long reportsToRoleId;
+
   @ManyToMany(fetch = FetchType.EAGER)
   @JoinTable(
       name = "role_permissions",

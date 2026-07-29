@@ -1,6 +1,7 @@
 package com.hitech.erp.task.service;
 
 import com.hitech.erp.common.exception.EntityNotFoundException;
+import com.hitech.erp.project.service.AccessService;
 import com.hitech.erp.task.db.SubtaskEntity;
 import com.hitech.erp.task.db.TaskAttachmentEntity;
 import com.hitech.erp.task.db.TaskCommentEntity;
@@ -35,11 +36,13 @@ public class TaskService {
   private final TaskRepository taskRepository;
   private final TaskMapper mapper;
   private final AppUserRepository userRepository;
+  private final AccessService accessService;
 
   // ---- Listing ----
-  // Tasks are NOT project-membership scoped: anyone with TASKOPAD:VIEW sees every task (there is no
-  // "only my tasks" restriction). Only the Projects module is membership-scoped. An optional
-  // projectId narrows the list (used by the project-embedded view and the header project dropdown).
+  // Task visibility: by default every user sees only the tasks they're involved in (assignee,
+  // follower, or creator). Super Admin is the exception — they get every task (the frontend gives
+  // Super Admin a "my tasks / all users' tasks" toggle; the default view is still their own).
+  // An optional projectId further narrows the list.
 
   @Transactional(readOnly = true)
   public List<TaskResponse> list(AuthenticatedUser user, Long projectId) {
@@ -47,12 +50,33 @@ public class TaskService {
     if (projectId != null) {
       tasks = tasks.stream().filter(t -> projectId.equals(t.getProjectId())).toList();
     }
+    if (!seesAllTasks(user)) {
+      Long me = user.id();
+      tasks = tasks.stream().filter(t -> involves(me, t)).toList();
+    }
     return mapper.toResponses(tasks);
   }
 
   @Transactional(readOnly = true)
   public TaskResponse get(AuthenticatedUser user, Long id) {
-    return mapper.toResponse(requireTask(id));
+    TaskEntity t = requireTask(id);
+    // Don't let a restricted user open a task they can't see (acts as if it doesn't exist).
+    if (!seesAllTasks(user) && !involves(user.id(), t)) {
+      throw new EntityNotFoundException("Task not found: " + id);
+    }
+    return mapper.toResponse(t);
+  }
+
+  /** Only Super Admin sees every task; everyone else is restricted to their own involvement. */
+  private boolean seesAllTasks(AuthenticatedUser user) {
+    return accessService.seesEverything(user);
+  }
+
+  /** Is the user the assignee, a follower, or the creator of this task? */
+  private boolean involves(Long userId, TaskEntity t) {
+    return userId.equals(t.getAssigneeId())
+        || (t.getFollowerIds() != null && t.getFollowerIds().contains(userId))
+        || userId.equals(t.getCreatedBy());
   }
 
   // ---- Create / update ----
@@ -63,6 +87,8 @@ public class TaskService {
     t.setCode(nextCode());
     t.setCreatedBy(user.id());
     apply(t, r);
+    // The creator automatically follows their own task (so it stays visible to them + they get updates).
+    t.getFollowerIds().add(user.id());
     t.logActivity(user.id(), "Task created");
     return mapper.toResponse(taskRepository.save(t));
   }
