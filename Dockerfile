@@ -11,7 +11,7 @@ COPY user-management-service/pom.xml user-management-service/
 COPY project-service/pom.xml project-service/
 COPY audit-service/pom.xml audit-service/
 COPY vyapar-service/pom.xml vyapar-service/
-COPY vyapar-service/pom.xml payroll-service/
+COPY payroll-service/pom.xml payroll-service/
 COPY web-app/pom.xml web-app/
 RUN mvn -q -B dependency:go-offline || true
 
