@@ -44,8 +44,8 @@ public class TaskService {
   // Two view modes surfaced in the UI as a "My Tasks / All Users' Tasks" toggle:
   //   MINE  = only tasks I'm involved in (assignee, follower, creator).
   //   ALL   = MINE ∪ (tasks assigned to anyone in my role subtree AND in my accessible projects).
-  // Super Admin bypasses both filters. Non-admins with an empty role subtree see the same list
-  // either way (the frontend hides the toggle for them).
+  // Super Admin's MINE is still their own involvement; only ALL bypasses to everything. Non-admins
+  // with an empty role subtree see the same list either way (the frontend hides the toggle).
 
   @Transactional(readOnly = true)
   public List<TaskResponse> list(AuthenticatedUser user, Long projectId, String scope) {
@@ -53,26 +53,31 @@ public class TaskService {
     if (projectId != null) {
       tasks = tasks.stream().filter(t -> projectId.equals(t.getProjectId())).toList();
     }
-    if (!accessService.seesEverything(user)) {
-      Long me = user.id();
-      boolean allMode = "ALL".equalsIgnoreCase(scope);
-      Set<Long> subtree = allMode ? accessService.subtreeUserIds(user) : Set.of();
-      Set<Long> myProjects =
-          allMode && !subtree.isEmpty()
-              ? new HashSet<>(accessService.accessibleProjectIds(user))
-              : Set.of();
-      // Office assignees in the subtree bypass the project intersection — their projectId (if any)
-      // is metadata, not a scope. Empty when there's no subtree.
-      Set<Long> officeInSubtree =
-          allMode && !subtree.isEmpty() ? accessService.officeIdsAmong(subtree) : Set.of();
-      tasks =
-          tasks.stream()
-              .filter(
-                  t ->
-                      involves(me, t)
-                          || (allMode && underMe(t, subtree, myProjects, officeInSubtree)))
-              .toList();
+    Long me = user.id();
+    boolean allMode = "ALL".equalsIgnoreCase(scope);
+    if (accessService.seesEverything(user)) {
+      // Super Admin: ALL = everything, MINE = own involvement only.
+      if (!allMode) {
+        tasks = tasks.stream().filter(t -> involves(me, t)).toList();
+      }
+      return mapper.toResponses(tasks);
     }
+    Set<Long> subtree = allMode ? accessService.subtreeUserIds(user) : Set.of();
+    Set<Long> myProjects =
+        allMode && !subtree.isEmpty()
+            ? new HashSet<>(accessService.accessibleProjectIds(user))
+            : Set.of();
+    // Office assignees in the subtree bypass the project intersection — their projectId (if any)
+    // is metadata, not a scope. Empty when there's no subtree.
+    Set<Long> officeInSubtree =
+        allMode && !subtree.isEmpty() ? accessService.officeIdsAmong(subtree) : Set.of();
+    tasks =
+        tasks.stream()
+            .filter(
+                t ->
+                    involves(me, t)
+                        || (allMode && underMe(t, subtree, myProjects, officeInSubtree)))
+            .toList();
     return mapper.toResponses(tasks);
   }
 
@@ -86,7 +91,10 @@ public class TaskService {
     return mapper.toResponse(t);
   }
 
-  /** True when the user is allowed to open this task (MINE ∪ ALL rule; admin bypass). */
+  /**
+   * True when the user is allowed to open this task. Super Admin can open every task (needed so
+   * their "All Users" mode can drill into any task). Everyone else follows the MINE ∪ ALL rule.
+   */
   private boolean canSee(AuthenticatedUser user, TaskEntity t) {
     if (accessService.seesEverything(user)) return true;
     if (involves(user.id(), t)) return true;
