@@ -103,9 +103,10 @@ public class ProjectService {
   }
 
   private Specification<ProjectEntity> buildSpec(String status, String q) {
-    // Non-admins only see projects they're a member of. Super Admin sees all.
+    // Site members are membership-scoped; Super Admin and Office members see the full catalogue
+    // (Office needs it for tagging projects on office tasks — access to those tasks is unchanged).
     var user = CurrentUser.get();
-    boolean restricted = !accessService.seesEverything(user);
+    boolean restricted = !accessService.isProjectListUnscoped(user);
     List<Long> accessibleIds = restricted ? accessService.accessibleProjectIds(user) : List.of();
 
     return (root, query, cb) -> {

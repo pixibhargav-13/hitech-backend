@@ -39,8 +39,9 @@ public class TaskController {
   @GetMapping
   @PreAuthorize("hasAuthority('TASKOPAD:VIEW')")
   public ResponseEntity<List<TaskResponse>> list(
-      @RequestParam(name = "projectId", required = false) Long projectId) {
-    return ResponseEntity.ok(taskService.list(CurrentUser.get(), projectId));
+      @RequestParam(name = "projectId", required = false) Long projectId,
+      @RequestParam(name = "scope", required = false) String scope) {
+    return ResponseEntity.ok(taskService.list(CurrentUser.get(), projectId, scope));
   }
 
   @GetMapping("/{id}")

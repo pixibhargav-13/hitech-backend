@@ -23,8 +23,10 @@ import com.hitech.erp.usermanagement.db.AppUserRepository;
 import com.hitech.erp.usermanagement.security.AuthenticatedUser;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,20 +41,37 @@ public class TaskService {
   private final AccessService accessService;
 
   // ---- Listing ----
-  // Task visibility: by default every user sees only the tasks they're involved in (assignee,
-  // follower, or creator). Super Admin is the exception — they get every task (the frontend gives
-  // Super Admin a "my tasks / all users' tasks" toggle; the default view is still their own).
-  // An optional projectId further narrows the list.
+  // Two view modes surfaced in the UI as a "My Tasks / All Users' Tasks" toggle:
+  //   MINE  = only tasks I'm involved in (assignee, follower, creator).
+  //   ALL   = MINE ∪ (tasks assigned to anyone in my role subtree AND in my accessible projects).
+  // Super Admin bypasses both filters. Non-admins with an empty role subtree see the same list
+  // either way (the frontend hides the toggle for them).
 
   @Transactional(readOnly = true)
-  public List<TaskResponse> list(AuthenticatedUser user, Long projectId) {
+  public List<TaskResponse> list(AuthenticatedUser user, Long projectId, String scope) {
     List<TaskEntity> tasks = taskRepository.findAllByOrderByCreatedAtDesc();
     if (projectId != null) {
       tasks = tasks.stream().filter(t -> projectId.equals(t.getProjectId())).toList();
     }
-    if (!seesAllTasks(user)) {
+    if (!accessService.seesEverything(user)) {
       Long me = user.id();
-      tasks = tasks.stream().filter(t -> involves(me, t)).toList();
+      boolean allMode = "ALL".equalsIgnoreCase(scope);
+      Set<Long> subtree = allMode ? accessService.subtreeUserIds(user) : Set.of();
+      Set<Long> myProjects =
+          allMode && !subtree.isEmpty()
+              ? new HashSet<>(accessService.accessibleProjectIds(user))
+              : Set.of();
+      // Office assignees in the subtree bypass the project intersection — their projectId (if any)
+      // is metadata, not a scope. Empty when there's no subtree.
+      Set<Long> officeInSubtree =
+          allMode && !subtree.isEmpty() ? accessService.officeIdsAmong(subtree) : Set.of();
+      tasks =
+          tasks.stream()
+              .filter(
+                  t ->
+                      involves(me, t)
+                          || (allMode && underMe(t, subtree, myProjects, officeInSubtree)))
+              .toList();
     }
     return mapper.toResponses(tasks);
   }
@@ -60,16 +79,38 @@ public class TaskService {
   @Transactional(readOnly = true)
   public TaskResponse get(AuthenticatedUser user, Long id) {
     TaskEntity t = requireTask(id);
-    // Don't let a restricted user open a task they can't see (acts as if it doesn't exist).
-    if (!seesAllTasks(user) && !involves(user.id(), t)) {
+    if (!canSee(user, t)) {
+      // 404 (not 403) so IDs from another manager's subtree don't leak existence.
       throw new EntityNotFoundException("Task not found: " + id);
     }
     return mapper.toResponse(t);
   }
 
-  /** Only Super Admin sees every task; everyone else is restricted to their own involvement. */
-  private boolean seesAllTasks(AuthenticatedUser user) {
-    return accessService.seesEverything(user);
+  /** True when the user is allowed to open this task (MINE ∪ ALL rule; admin bypass). */
+  private boolean canSee(AuthenticatedUser user, TaskEntity t) {
+    if (accessService.seesEverything(user)) return true;
+    if (involves(user.id(), t)) return true;
+    Set<Long> subtree = accessService.subtreeUserIds(user);
+    if (subtree.isEmpty()) return false;
+    Set<Long> myProjects = new HashSet<>(accessService.accessibleProjectIds(user));
+    Set<Long> officeInSubtree = accessService.officeIdsAmong(subtree);
+    return underMe(t, subtree, myProjects, officeInSubtree);
+  }
+
+  /**
+   * Task shows through the subtree branch when: assignee is in my role subtree, AND either
+   * (a) that assignee is Office — projectId is a label, no intersection needed, OR
+   * (b) the task has no project (project-less task, no intersection possible), OR
+   * (c) the task's project is one I'm a member of.
+   */
+  private boolean underMe(
+      TaskEntity t, Set<Long> subtree, Set<Long> myProjects, Set<Long> officeInSubtree) {
+    Long assignee = t.getAssigneeId();
+    if (assignee == null || !subtree.contains(assignee)) return false;
+    if (officeInSubtree.contains(assignee)) return true;
+    Long pid = t.getProjectId();
+    if (pid == null) return true;
+    return myProjects.contains(pid);
   }
 
   /** Is the user the assignee, a follower, or the creator of this task? */
