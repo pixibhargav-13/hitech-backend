@@ -11,6 +11,7 @@ COPY user-management-service/pom.xml user-management-service/
 COPY project-service/pom.xml project-service/
 COPY audit-service/pom.xml audit-service/
 COPY vyapar-service/pom.xml vyapar-service/
+COPY vyapar-service/pom.xml payroll-service/
 COPY web-app/pom.xml web-app/
 RUN mvn -q -B dependency:go-offline || true
 
@@ -20,6 +21,7 @@ COPY user-management-service/src user-management-service/src
 COPY project-service/src project-service/src
 COPY audit-service/src audit-service/src
 COPY vyapar-service/src vyapar-service/src
+COPY payroll-service/src payroll-service/src
 COPY web-app/src web-app/src
 RUN mvn -q -B -pl web-app -am clean package -DskipTests
 
