@@ -6,6 +6,7 @@ public enum TaskStatus {
   IN_PROGRESS,
   ON_HOLD,
   STUCK,
+  AWAITING_APPROVAL,
   COMPLETED;
 
   /** Accepts UI labels ("In Progress"), enum names, dashes/underscores — case-insensitive. */

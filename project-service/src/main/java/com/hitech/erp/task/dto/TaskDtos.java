@@ -45,8 +45,13 @@ public final class TaskDtos {
       List<CommentDto> comments,
       List<AttachmentDto> attachments,
       List<ActivityDto> activity,
+      Long completionRequestedBy,
+      String completionNote,
       LocalDateTime createdAt,
       LocalDateTime updatedAt) {}
+
+  /** Manager's reason when rejecting a completion request. */
+  public record CompletionRejectRequest(String note) {}
 
   public record SubtaskInput(Long id, String title, boolean done, Long assigneeId) {}
 

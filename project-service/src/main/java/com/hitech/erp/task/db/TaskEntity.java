@@ -97,6 +97,23 @@ public class TaskEntity extends BaseEntity {
   @Column(name = "department_id")
   private Long departmentId;
 
+  // ---- Completion approval workflow ----
+  /** Who requested completion (set while status = AWAITING_APPROVAL). */
+  @Column(name = "completion_requested_by")
+  private Long completionRequestedBy;
+
+  /** The role that must approve this completion (a member of it, project-scoped for Project Managers). */
+  @Column(name = "completion_approver_role_id")
+  private Long completionApproverRoleId;
+
+  /** The status to restore if the completion is rejected. */
+  @Column(name = "completion_prev_status", length = 20)
+  private String completionPrevStatus;
+
+  /** Reason captured when a completion is rejected. */
+  @Column(name = "completion_note", columnDefinition = "text")
+  private String completionNote;
+
   @ElementCollection(fetch = FetchType.EAGER)
   @CollectionTable(name = "task_followers", joinColumns = @JoinColumn(name = "task_id"))
   @Column(name = "user_id", nullable = false)

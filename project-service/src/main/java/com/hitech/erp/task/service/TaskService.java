@@ -1,6 +1,7 @@
 package com.hitech.erp.task.service;
 
 import com.hitech.erp.common.exception.EntityNotFoundException;
+import com.hitech.erp.project.db.ProjectMemberRepository;
 import com.hitech.erp.project.service.AccessService;
 import com.hitech.erp.task.db.SubtaskEntity;
 import com.hitech.erp.task.db.TaskAttachmentEntity;
@@ -20,6 +21,8 @@ import com.hitech.erp.task.dto.TaskDtos.TaskResponse;
 import com.hitech.erp.task.dto.TaskDtos.TaskUpsertRequest;
 import com.hitech.erp.task.mapper.TaskMapper;
 import com.hitech.erp.usermanagement.db.AppUserRepository;
+import com.hitech.erp.usermanagement.db.RoleEntity;
+import com.hitech.erp.usermanagement.db.RoleRepository;
 import com.hitech.erp.usermanagement.security.AuthenticatedUser;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -39,6 +42,10 @@ public class TaskService {
   private final TaskMapper mapper;
   private final AppUserRepository userRepository;
   private final AccessService accessService;
+  private final RoleRepository roleRepository;
+  private final ProjectMemberRepository memberRepository;
+
+  private static final String PROJECT_MANAGER = "Project Manager";
 
   // ---- Listing ----
   // Two view modes surfaced in the UI as a "My Tasks / All Users' Tasks" toggle:
@@ -84,8 +91,9 @@ public class TaskService {
   @Transactional(readOnly = true)
   public TaskResponse get(AuthenticatedUser user, Long id) {
     TaskEntity t = requireTask(id);
-    if (!canSee(user, t)) {
+    if (!canSee(user, t) && !canApprove(user, t)) {
       // 404 (not 403) so IDs from another manager's subtree don't leak existence.
+      // The approver of a pending completion may open the task even if not otherwise involved.
       throw new EntityNotFoundException("Task not found: " + id);
     }
     return mapper.toResponse(t);
@@ -139,6 +147,7 @@ public class TaskService {
     // The creator automatically follows their own task (so it stays visible to them + they get updates).
     t.getFollowerIds().add(user.id());
     t.logActivity(user.id(), "Task created");
+    routeCompletion(user, t, TaskStatus.PENDING); // if created as Completed, route through approval
     return mapper.toResponse(taskRepository.save(t));
   }
 
@@ -146,7 +155,9 @@ public class TaskService {
   public TaskResponse update(AuthenticatedUser user, Long id, TaskUpsertRequest r) {
     TaskEntity t = requireTask(id);
     boolean wasCompleted = t.getStatus() == TaskStatus.COMPLETED;
+    TaskStatus prevStatus = t.getStatus();
     apply(t, r);
+    routeCompletion(user, t, prevStatus); // hold for approval when the actor needs sign-off
     t.logActivity(user.id(), "Task updated");
     TaskEntity saved = taskRepository.save(t);
     // Completing a repeating task from the drawer should roll the series forward too.
@@ -161,12 +172,18 @@ public class TaskService {
 
     boolean completedNow = false;
     if (r.status() != null) {
-      TaskStatus status = TaskStatus.from(r.status());
-      if (status != t.getStatus()) {
-        completedNow = status == TaskStatus.COMPLETED;
-        t.setStatus(status);
-        if (status == TaskStatus.COMPLETED) t.setProgress(100);
-        t.logActivity(user.id(), "Status changed to " + label(status));
+      TaskStatus target = TaskStatus.from(r.status());
+      if (target != t.getStatus()) {
+        if (target == TaskStatus.COMPLETED) {
+          TaskStatus prev = t.getStatus();
+          t.setStatus(TaskStatus.COMPLETED);
+          routeCompletion(user, t, prev); // may hold for approval, or throw if blocked
+          completedNow = t.getStatus() == TaskStatus.COMPLETED;
+        } else {
+          t.setStatus(target);
+          clearApproval(t); // moving away from awaiting cancels the pending request
+        }
+        t.logActivity(user.id(), "Status changed to " + label(t.getStatus()));
       }
     }
     if (r.priority() != null) {
@@ -180,8 +197,11 @@ public class TaskService {
       int p = clampProgress(r.progress());
       if (p != t.getProgress()) {
         t.setProgress(p);
-        if (p == 100 && t.getStatus() != TaskStatus.COMPLETED) {
+        if (p == 100 && t.getStatus() != TaskStatus.COMPLETED && t.getStatus() != TaskStatus.AWAITING_APPROVAL) {
+          TaskStatus prev = t.getStatus();
           t.setStatus(TaskStatus.COMPLETED);
+          routeCompletion(user, t, prev);
+          if (t.getStatus() == TaskStatus.COMPLETED) completedNow = true;
         }
         t.logActivity(user.id(), "Progress set to " + p + "%");
       }
@@ -291,11 +311,19 @@ public class TaskService {
     List<TaskEntity> completedNow = new ArrayList<>();
     for (TaskEntity t : tasks) {
       if (r.status() != null) {
-        TaskStatus status = TaskStatus.from(r.status());
-        if (status == TaskStatus.COMPLETED && t.getStatus() != TaskStatus.COMPLETED) completedNow.add(t);
-        t.setStatus(status);
-        if (status == TaskStatus.COMPLETED) t.setProgress(100);
-        t.logActivity(user.id(), "Status changed to " + label(status) + " (bulk)");
+        TaskStatus target = TaskStatus.from(r.status());
+        if (target != t.getStatus()) {
+          if (target == TaskStatus.COMPLETED) {
+            TaskStatus prev = t.getStatus();
+            t.setStatus(TaskStatus.COMPLETED);
+            routeCompletion(user, t, prev);
+            if (t.getStatus() == TaskStatus.COMPLETED) completedNow.add(t);
+          } else {
+            t.setStatus(target);
+            clearApproval(t);
+          }
+          t.logActivity(user.id(), "Status changed to " + label(t.getStatus()) + " (bulk)");
+        }
       }
       if (r.priority() != null) {
         t.setPriority(TaskPriority.from(r.priority()));
@@ -433,8 +461,111 @@ public class TaskService {
       case IN_PROGRESS -> "In Progress";
       case ON_HOLD -> "On Hold";
       case STUCK -> "Stuck";
+      case AWAITING_APPROVAL -> "Awaiting Approval";
       case COMPLETED -> "Completed";
     };
+  }
+
+  // ---- Completion approval workflow ----
+
+  /**
+   * The role that must approve this user's completion of this task, or null when the user can
+   * complete it directly (Super Admin, or top of their role ladder). Throws (422) when a report to a
+   * Project Manager can't complete because the task has no project / no PM on it.
+   */
+  private Long resolveApproverRole(AuthenticatedUser user, TaskEntity task) {
+    if (accessService.seesEverything(user)) return null; // Super Admin completes directly
+    RoleEntity myRole = user.roleId() == null ? null : roleRepository.findById(user.roleId()).orElse(null);
+    Long approverRoleId = myRole == null ? null : myRole.getReportsToRoleId();
+    if (approverRoleId == null) return null; // no manager → direct
+    RoleEntity approverRole = roleRepository.findById(approverRoleId).orElse(null);
+    if (approverRole != null && PROJECT_MANAGER.equalsIgnoreCase(approverRole.getName())) {
+      if (task.getProjectId() == null) {
+        throw new IllegalStateException("Assign this task to a project first — its Project Manager approves completion.");
+      }
+      List<Long> pmIds = userRepository.findIdsByRoleIdIn(List.of(approverRoleId));
+      boolean pmOnProject = pmIds.stream().anyMatch(pid -> memberRepository.existsByProjectIdAndUserId(task.getProjectId(), pid));
+      if (!pmOnProject) {
+        throw new IllegalStateException("No Project Manager is a member of this task's project yet — add one so they can approve completion.");
+      }
+    }
+    return approverRoleId;
+  }
+
+  /** If a task's status has become COMPLETED but the actor needs sign-off, hold it for approval. */
+  private void routeCompletion(AuthenticatedUser user, TaskEntity t, TaskStatus prevStatus) {
+    if (t.getStatus() != TaskStatus.COMPLETED) return;
+    Long approverRole = resolveApproverRole(user, t); // may throw (blocked)
+    if (approverRole == null) {
+      t.setProgress(100);
+      clearApproval(t);
+      return;
+    }
+    TaskStatus prev = (prevStatus == TaskStatus.COMPLETED || prevStatus == TaskStatus.AWAITING_APPROVAL)
+        ? TaskStatus.IN_PROGRESS : prevStatus;
+    t.setCompletionPrevStatus(prev.name());
+    t.setCompletionRequestedBy(user.id());
+    t.setCompletionApproverRoleId(approverRole);
+    t.setCompletionNote(null);
+    t.setStatus(TaskStatus.AWAITING_APPROVAL);
+    t.logActivity(user.id(), "Requested completion — awaiting approval");
+  }
+
+  /** Clear the in-flight completion request fields (keeps completionNote as the last decision note). */
+  private void clearApproval(TaskEntity t) {
+    t.setCompletionRequestedBy(null);
+    t.setCompletionApproverRoleId(null);
+    t.setCompletionPrevStatus(null);
+  }
+
+  /** Can this user approve/reject the pending completion of this task? */
+  private boolean canApprove(AuthenticatedUser user, TaskEntity t) {
+    if (t.getStatus() != TaskStatus.AWAITING_APPROVAL || t.getCompletionApproverRoleId() == null) return false;
+    if (!t.getCompletionApproverRoleId().equals(user.roleId())) return false; // must hold the approver role
+    RoleEntity approverRole = roleRepository.findById(t.getCompletionApproverRoleId()).orElse(null);
+    if (approverRole != null && PROJECT_MANAGER.equalsIgnoreCase(approverRole.getName())) {
+      // Team Member → PM is project-scoped: only a PM on the task's project may approve.
+      return t.getProjectId() != null && memberRepository.existsByProjectIdAndUserId(t.getProjectId(), user.id());
+    }
+    return true;
+  }
+
+  /** Tasks awaiting the signed-in user's approval — the approver's queue. */
+  @Transactional(readOnly = true)
+  public List<TaskResponse> pendingApprovals(AuthenticatedUser user) {
+    return taskRepository.findAllByOrderByCreatedAtDesc().stream()
+        .filter(t -> canApprove(user, t))
+        .map(mapper::toResponse)
+        .toList();
+  }
+
+  @Transactional
+  public TaskResponse approveCompletion(AuthenticatedUser user, Long id) {
+    TaskEntity t = requireTask(id);
+    if (!canApprove(user, t)) throw new IllegalStateException("You aren't the approver for this task's completion.");
+    boolean wasCompleted = t.getStatus() == TaskStatus.COMPLETED;
+    t.setStatus(TaskStatus.COMPLETED);
+    t.setProgress(100);
+    clearApproval(t);
+    t.setCompletionNote(null);
+    t.logActivity(user.id(), "Approved completion");
+    TaskEntity saved = taskRepository.save(t);
+    if (!wasCompleted) spawnNextOccurrence(user, saved);
+    return mapper.toResponse(saved);
+  }
+
+  @Transactional
+  public TaskResponse rejectCompletion(AuthenticatedUser user, Long id, String note) {
+    TaskEntity t = requireTask(id);
+    if (!canApprove(user, t)) throw new IllegalStateException("You aren't the approver for this task's completion.");
+    TaskStatus restore = t.getCompletionPrevStatus() != null
+        ? TaskStatus.from(t.getCompletionPrevStatus()) : TaskStatus.IN_PROGRESS;
+    String reason = note == null || note.isBlank() ? null : note.trim();
+    t.setStatus(restore);
+    clearApproval(t);
+    t.setCompletionNote(reason);
+    t.logActivity(user.id(), "Rejected completion" + (reason != null ? ": " + reason : ""));
+    return mapper.toResponse(taskRepository.save(t));
   }
 
   private String label(TaskPriority p) {

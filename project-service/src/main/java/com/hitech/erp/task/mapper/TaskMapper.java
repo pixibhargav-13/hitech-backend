@@ -45,6 +45,8 @@ public class TaskMapper {
         t.getComments().stream().map(this::toComment).toList(),
         t.getAttachments().stream().map(this::toAttachment).toList(),
         t.getActivity().stream().map(this::toActivity).toList(),
+        t.getCompletionRequestedBy(),
+        t.getCompletionNote(),
         t.getCreatedAt(),
         t.getUpdatedAt());
   }

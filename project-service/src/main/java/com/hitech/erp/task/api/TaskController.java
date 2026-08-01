@@ -4,6 +4,7 @@ import com.hitech.erp.task.dto.TaskDtos.AttachmentInput;
 import com.hitech.erp.task.dto.TaskDtos.BulkDeleteRequest;
 import com.hitech.erp.task.dto.TaskDtos.BulkPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.CommentInput;
+import com.hitech.erp.task.dto.TaskDtos.CompletionRejectRequest;
 import com.hitech.erp.task.dto.TaskDtos.TaskPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.TaskResponse;
 import com.hitech.erp.task.dto.TaskDtos.TaskUpsertRequest;
@@ -111,5 +112,27 @@ public class TaskController {
   public ResponseEntity<TaskResponse> toggleSubtask(
       @PathVariable("id") Long id, @PathVariable("subtaskId") Long subtaskId) {
     return ResponseEntity.ok(taskService.toggleSubtask(CurrentUser.get(), id, subtaskId));
+  }
+
+  // ---- Completion approval workflow ----
+
+  /** Tasks awaiting the signed-in user's approval (the approver's queue). */
+  @GetMapping("/approvals")
+  @PreAuthorize("hasAuthority('TASKOPAD:VIEW')")
+  public ResponseEntity<List<TaskResponse>> pendingApprovals() {
+    return ResponseEntity.ok(taskService.pendingApprovals(CurrentUser.get()));
+  }
+
+  @PostMapping("/{id}/approve")
+  @PreAuthorize("hasAuthority('TASKOPAD:VIEW')")
+  public ResponseEntity<TaskResponse> approveCompletion(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(taskService.approveCompletion(CurrentUser.get(), id));
+  }
+
+  @PostMapping("/{id}/reject")
+  @PreAuthorize("hasAuthority('TASKOPAD:VIEW')")
+  public ResponseEntity<TaskResponse> rejectCompletion(
+      @PathVariable("id") Long id, @RequestBody(required = false) CompletionRejectRequest request) {
+    return ResponseEntity.ok(taskService.rejectCompletion(CurrentUser.get(), id, request == null ? null : request.note()));
   }
 }
