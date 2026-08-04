@@ -18,9 +18,13 @@ import lombok.Setter;
 @Table(name = "vyapar_payments")
 public class PaymentEntity extends BaseEntity {
 
-  /** The bank/cash account this payment belongs to (null = all accounts). */
+  /** The bank/cash account this payment moved through — a payment method, not the scope lens. */
   @Column(name = "bank_account_id")
   private Long bankAccountId;
+
+  /** The construction project this payment belongs to (null = unassigned / visible under All Projects). */
+  @Column(name = "project_id")
+  private Long projectId;
 
   /** IN or OUT. */
   @Column(nullable = false, length = 10)

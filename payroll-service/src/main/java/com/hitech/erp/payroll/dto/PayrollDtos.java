@@ -76,6 +76,10 @@ public final class PayrollDtos {
       String ifsc,
       String bankName,
       String pan,
+      /** Identity documents as a JSON array of {type, number}, stored/edited on the frontend. */
+      String documents,
+      /** Salary components (earnings + deductions) as delimited text — see salaryComponents.ts. */
+      String components,
       Long shiftId,
       Long holidayPolicyId,
       Long leavePolicyId) {}
@@ -90,6 +94,10 @@ public final class PayrollDtos {
       String ifsc,
       String bankName,
       String pan,
+      /** Identity documents as a JSON array of {type, number}, stored/edited on the frontend. */
+      String documents,
+      /** Salary components (earnings + deductions) as delimited text — see salaryComponents.ts. */
+      String components,
       Long shiftId,
       Long holidayPolicyId,
       Long leavePolicyId) {}
@@ -267,12 +275,22 @@ public final class PayrollDtos {
       java.math.BigDecimal pf,
       java.math.BigDecimal esic,
       java.math.BigDecimal pt,
+      java.math.BigDecimal otherDeductions,
+      String deductionsDetail,
       java.math.BigDecimal loanEmi,
       java.math.BigDecimal reimbursements,
       java.math.BigDecimal net,
       java.math.BigDecimal payableDays,
       int totalDays,
       String month) {}
+
+  /** Manual adjustment to a DRAFT payslip — net recomputes from these. */
+  public record PayslipEditRequest(java.math.BigDecimal gross, java.math.BigDecimal otherDeductions) {}
+
+  // ---- Salary component template (org-wide default) ----
+  public record SalaryTemplateResponse(String components) {}
+
+  public record SalaryTemplateRequest(String components) {}
 
   public record PayrollRunResponse(
       Long id,

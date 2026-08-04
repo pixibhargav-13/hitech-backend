@@ -25,6 +25,8 @@ import com.hitech.erp.payroll.dto.PayrollDtos.LeavePolicyRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.LeavePolicyResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollProfileRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollProfileResponse;
+import com.hitech.erp.payroll.dto.PayrollDtos.SalaryTemplateRequest;
+import com.hitech.erp.payroll.dto.PayrollDtos.SalaryTemplateResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.ShiftRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.ShiftResponse;
 import com.hitech.erp.payroll.service.AttendanceService;
@@ -95,6 +97,19 @@ public class PayrollController {
     if (!isManager() && (userId == null || !userId.equals(currentUserId()))) {
       throw new AccessDeniedException("You can only view your own payroll records");
     }
+  }
+
+  // ---- Salary component template (org-wide default) ----
+  @GetMapping("/salary-template")
+  @PreAuthorize("hasAuthority('PAYROLL:VIEW')")
+  public ResponseEntity<SalaryTemplateResponse> getSalaryTemplate() {
+    return ResponseEntity.ok(service.getSalaryTemplate());
+  }
+
+  @PutMapping("/salary-template")
+  @PreAuthorize("hasAuthority('PAYROLL:EDIT')")
+  public ResponseEntity<SalaryTemplateResponse> saveSalaryTemplate(@RequestBody SalaryTemplateRequest r) {
+    return ResponseEntity.ok(service.saveSalaryTemplate(r));
   }
 
   // ---- Shifts ----
@@ -426,6 +441,16 @@ public class PayrollController {
   @PreAuthorize("hasAuthority('PAYROLL:APPROVE')")
   public ResponseEntity<PayrollRunResponse> markRunPaid(@PathVariable("month") String month) {
     return ResponseEntity.ok(runService.markPaid(month, currentUserId()));
+  }
+
+  /** Adjust one payslip inside a DRAFT run (gross / custom deductions); net recomputes. */
+  @PutMapping("/runs/{month}/payslips/{userId}")
+  @PreAuthorize("hasAuthority('PAYROLL:EDIT')")
+  public ResponseEntity<PayslipResponse> editPayslip(
+      @PathVariable("month") String month,
+      @PathVariable("userId") Long userId,
+      @RequestBody com.hitech.erp.payroll.dto.PayrollDtos.PayslipEditRequest r) {
+    return ResponseEntity.ok(runService.editPayslip(month, userId, r));
   }
 
   /** Self-service — the signed-in member's own payslips across every run. */

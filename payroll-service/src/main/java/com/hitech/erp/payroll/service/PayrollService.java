@@ -10,6 +10,8 @@ import com.hitech.erp.payroll.db.LeavePolicyRepository;
 import com.hitech.erp.payroll.db.LeaveTypeEntity;
 import com.hitech.erp.payroll.db.PayrollProfileEntity;
 import com.hitech.erp.payroll.db.PayrollProfileRepository;
+import com.hitech.erp.payroll.db.SalaryTemplateEntity;
+import com.hitech.erp.payroll.db.SalaryTemplateRepository;
 import com.hitech.erp.payroll.db.ShiftEntity;
 import com.hitech.erp.payroll.db.ShiftRepository;
 import com.hitech.erp.payroll.dto.PayrollDtos.HolidayPolicyRequest;
@@ -23,6 +25,8 @@ import com.hitech.erp.payroll.dto.PayrollDtos.LeaveTypeResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollProfileRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollProfileResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.SalaryStructure;
+import com.hitech.erp.payroll.dto.PayrollDtos.SalaryTemplateRequest;
+import com.hitech.erp.payroll.dto.PayrollDtos.SalaryTemplateResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.ShiftRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.ShiftResponse;
 import java.math.BigDecimal;
@@ -47,6 +51,25 @@ public class PayrollService {
   private final HolidayPolicyRepository holidayPolicyRepository;
   private final LeavePolicyRepository leavePolicyRepository;
   private final PayrollProfileRepository profileRepository;
+  private final SalaryTemplateRepository salaryTemplateRepository;
+
+  // ================= Salary component template =================
+
+  /** The org-wide default salary components (delimited text). Empty when never set up. */
+  @Transactional(readOnly = true)
+  public SalaryTemplateResponse getSalaryTemplate() {
+    return salaryTemplateRepository.findAll().stream()
+        .findFirst()
+        .map(t -> new SalaryTemplateResponse(t.getComponents()))
+        .orElse(new SalaryTemplateResponse(null));
+  }
+
+  @Transactional
+  public SalaryTemplateResponse saveSalaryTemplate(SalaryTemplateRequest r) {
+    SalaryTemplateEntity t = salaryTemplateRepository.findAll().stream().findFirst().orElseGet(SalaryTemplateEntity::new);
+    t.setComponents(blankToNull(r.components()));
+    return new SalaryTemplateResponse(salaryTemplateRepository.save(t).getComponents());
+  }
 
   // ================= Shifts =================
 
@@ -261,6 +284,8 @@ public class PayrollService {
     e.setIfsc(blankToNull(r.ifsc()));
     e.setBankName(blankToNull(r.bankName()));
     e.setPan(blankToNull(r.pan()));
+    e.setDocuments(blankToNull(r.documents()));
+    e.setComponents(blankToNull(r.components()));
     e.setShiftId(r.shiftId());
     e.setHolidayPolicyId(r.holidayPolicyId());
     e.setLeavePolicyId(r.leavePolicyId());
@@ -283,6 +308,7 @@ public class PayrollService {
         e.getUserId(), e.getCategory(), e.getDesignation(),
         e.getJoiningDate() == null ? null : e.getJoiningDate().toString(),
         salary, e.getBankAccount(), e.getIfsc(), e.getBankName(), e.getPan(),
+        e.getDocuments(), e.getComponents(),
         e.getShiftId(), e.getHolidayPolicyId(), e.getLeavePolicyId());
   }
 

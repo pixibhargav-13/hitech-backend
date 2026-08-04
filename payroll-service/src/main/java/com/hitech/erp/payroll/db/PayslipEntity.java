@@ -44,6 +44,14 @@ public class PayslipEntity extends BaseEntity {
   @Column(nullable = false, precision = 12, scale = 2)
   private BigDecimal pt = BigDecimal.ZERO;
 
+  /** Sum of deduction components that aren't PF/ESIC/PT (custom deductions). */
+  @Column(name = "other_deductions", nullable = false, precision = 12, scale = 2)
+  private BigDecimal otherDeductions = BigDecimal.ZERO;
+
+  /** Human-readable deduction breakdown as delimited text "name|amount;…" for the payslip. */
+  @Column(name = "deductions_detail", columnDefinition = "text")
+  private String deductionsDetail;
+
   @Column(name = "loan_emi", nullable = false, precision = 12, scale = 2)
   private BigDecimal loanEmi = BigDecimal.ZERO;
 

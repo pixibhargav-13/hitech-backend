@@ -16,6 +16,7 @@ import com.hitech.erp.payroll.db.ReimbursementEntity;
 import com.hitech.erp.payroll.db.ReimbursementRepository;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollRunResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayrollRunSummary;
+import com.hitech.erp.payroll.dto.PayrollDtos.PayslipEditRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.PayslipResponse;
 import com.hitech.erp.usermanagement.db.AppUserEntity;
 import com.hitech.erp.usermanagement.db.AppUserRepository;
@@ -170,15 +171,36 @@ public class PayrollRunService {
             .divide(new BigDecimal(totalDays), 0, RoundingMode.HALF_UP);
       }
 
-      BigDecimal pf = BigDecimal.ZERO;
-      if (p.isPf()) {
-        BigDecimal cap = p.getBasic().min(BigDecimal.valueOf(15000));
-        pf = cap.multiply(BigDecimal.valueOf(0.12))
-            .multiply(payableDays)
-            .divide(new BigDecimal(totalDays), 0, RoundingMode.HALF_UP);
+      // Deductions: from the member's dynamic salary components when present, else the legacy
+      // PF/ESIC/PT booleans. PF/ESIC/PT keep dedicated columns; anything else sums into "other".
+      BigDecimal pf, esic, pt, otherDed;
+      String deductionsDetail;
+      List<DeductionLine> lines = computeDeductions(p.getComponents(), p.getMonthlyCtc(), p.getBasic(), gross, payableDays, totalDays);
+      if (!lines.isEmpty()) {
+        BigDecimal pfx = BigDecimal.ZERO, esicx = BigDecimal.ZERO, ptx = BigDecimal.ZERO, otherx = BigDecimal.ZERO;
+        StringBuilder sb = new StringBuilder();
+        for (DeductionLine d : lines) {
+          String n = d.name().toUpperCase();
+          if (n.equals("PF") || n.contains("PROVIDENT")) pfx = pfx.add(d.amount());
+          else if (n.equals("ESIC") || n.contains("ESI")) esicx = esicx.add(d.amount());
+          else if (n.contains("PROFESSIONAL") || n.equals("PT")) ptx = ptx.add(d.amount());
+          else otherx = otherx.add(d.amount());
+          if (sb.length() > 0) sb.append(";");
+          sb.append(d.name().replace("|", " ").replace(";", " ")).append("|").append(d.amount().toPlainString());
+        }
+        pf = pfx; esic = esicx; pt = ptx; otherDed = otherx; deductionsDetail = sb.toString();
+      } else {
+        pf = BigDecimal.ZERO;
+        if (p.isPf()) {
+          BigDecimal cap = p.getBasic().min(BigDecimal.valueOf(15000));
+          pf = cap.multiply(BigDecimal.valueOf(0.12)).multiply(payableDays)
+              .divide(new BigDecimal(totalDays), 0, RoundingMode.HALF_UP);
+        }
+        esic = p.isEsic() ? gross.multiply(BigDecimal.valueOf(0.0075)).setScale(0, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+        pt = p.isPt() && gross.compareTo(BigDecimal.valueOf(15000)) > 0 ? BigDecimal.valueOf(200) : BigDecimal.ZERO;
+        otherDed = BigDecimal.ZERO;
+        deductionsDetail = null;
       }
-      BigDecimal esic = p.isEsic() ? gross.multiply(BigDecimal.valueOf(0.0075)).setScale(0, RoundingMode.HALF_UP) : BigDecimal.ZERO;
-      BigDecimal pt = p.isPt() && gross.compareTo(BigDecimal.valueOf(15000)) > 0 ? BigDecimal.valueOf(200) : BigDecimal.ZERO;
 
       // Loan EMIs (only outstanding > 0)
       List<LoanEntity> loans = loanRepository.findByUserIdOrderByCreatedAtDesc(p.getUserId());
@@ -194,7 +216,7 @@ public class PayrollRunService {
           .map(x -> x.getApprovedAmount() == null ? x.getRequestedAmount() : x.getApprovedAmount())
           .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-      BigDecimal net = gross.subtract(pf).subtract(esic).subtract(pt).subtract(loanEmi).add(reimbursements)
+      BigDecimal net = gross.subtract(pf).subtract(esic).subtract(pt).subtract(otherDed).subtract(loanEmi).add(reimbursements)
           .max(BigDecimal.ZERO);
 
       PayslipEntity slip = new PayslipEntity();
@@ -204,6 +226,8 @@ public class PayrollRunService {
       slip.setPf(pf);
       slip.setEsic(esic);
       slip.setPt(pt);
+      slip.setOtherDeductions(otherDed);
+      slip.setDeductionsDetail(deductionsDetail);
       slip.setLoanEmi(loanEmi);
       slip.setReimbursements(reimbursements);
       slip.setNet(net);
@@ -292,6 +316,35 @@ public class PayrollRunService {
         slips);
   }
 
+  /** Adjust one payslip in a DRAFT run; recomputes its net and the run totals. */
+  @Transactional
+  public PayslipResponse editPayslip(String month, Long userId, PayslipEditRequest r) {
+    PayrollRunEntity run = runRepository.findByMonth(month)
+        .orElseThrow(() -> new EntityNotFoundException("No payroll run for " + month));
+    if (!"DRAFT".equals(run.getStatus())) {
+      throw new EntityDeletionNotAllowedException("Only DRAFT payslips can be edited (run is " + run.getStatus() + ")");
+    }
+    PayslipEntity slip = run.getPayslips().stream()
+        .filter(p -> p.getUserId().equals(userId))
+        .findFirst()
+        .orElseThrow(() -> new EntityNotFoundException("No payslip for user " + userId + " in " + month));
+    if (r.gross() != null) slip.setGross(r.gross().max(BigDecimal.ZERO));
+    if (r.otherDeductions() != null) slip.setOtherDeductions(r.otherDeductions().max(BigDecimal.ZERO));
+    BigDecimal net = slip.getGross().subtract(slip.getPf()).subtract(slip.getEsic()).subtract(slip.getPt())
+        .subtract(slip.getOtherDeductions()).subtract(slip.getLoanEmi()).add(slip.getReimbursements()).max(BigDecimal.ZERO);
+    slip.setNet(net);
+
+    BigDecimal totalGross = BigDecimal.ZERO, totalNet = BigDecimal.ZERO;
+    for (PayslipEntity p : run.getPayslips()) {
+      totalGross = totalGross.add(p.getGross());
+      totalNet = totalNet.add(p.getNet());
+    }
+    run.setTotalGross(totalGross);
+    run.setTotalNet(totalNet);
+    runRepository.save(run);
+    return toSlipResponse(slip, resolveNames(java.util.List.of(userId)));
+  }
+
   private PayrollRunSummary toSummary(PayrollRunEntity r) {
     return new PayrollRunSummary(
         r.getId(), r.getMonth(), r.getStatus(),
@@ -304,6 +357,7 @@ public class PayrollRunService {
     return new PayslipResponse(
         p.getId(), p.getUserId(), names.getOrDefault(p.getUserId(), ""),
         p.getGross(), p.getPf(), p.getEsic(), p.getPt(),
+        p.getOtherDeductions(), p.getDeductionsDetail(),
         p.getLoanEmi(), p.getReimbursements(), p.getNet(),
         p.getPayableDays(), p.getTotalDays(),
         p.getRun() == null ? null : p.getRun().getMonth());
@@ -315,5 +369,51 @@ public class PayrollRunService {
     Map<Long, String> out = new HashMap<>();
     for (AppUserEntity u : userRepository.findAllById(distinct)) out.put(u.getId(), u.getFullName());
     return out;
+  }
+
+  // ---- Dynamic salary-component deductions (delimited text, no Jackson — mirrors salaryComponents.ts) ----
+  private record DeductionLine(String name, BigDecimal amount) {}
+
+  /**
+   * Deduction lines from a member's components string. Percent-of-basic/ctc lines are pro-rated by
+   * attendance (like the old PF); percent-of-gross and flat lines are not (gross is already
+   * pro-rated, a flat statutory charge is fixed). Empty list when the member has no components.
+   */
+  private List<DeductionLine> computeDeductions(
+      String components, BigDecimal ctc, BigDecimal basic, BigDecimal gross, BigDecimal payableDays, int totalDays) {
+    List<DeductionLine> out = new java.util.ArrayList<>();
+    if (components == null || components.isBlank()) return out;
+    for (String part : components.split(";")) {
+      String[] f = part.split("\\|", -1);
+      if (f.length < 4 || f[0].isBlank() || !"D".equals(f[1])) continue;
+      String calc = f[2];
+      BigDecimal value = parseBd(f[3]);
+      BigDecimal cap = f.length > 4 ? parseBdOrNull(f[4]) : null;
+      BigDecimal threshold = f.length > 5 ? parseBdOrNull(f[5]) : null;
+      if (threshold != null && gross.compareTo(threshold) <= 0) continue;
+      BigDecimal amount;
+      if ("FLAT".equals(calc)) {
+        amount = value;
+      } else {
+        BigDecimal base = "CTC".equals(calc) ? ctc : "GROSS".equals(calc) ? gross : basic;
+        if (cap != null) base = base.min(cap);
+        amount = base.multiply(value).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        if (!"GROSS".equals(calc) && totalDays > 0) {
+          amount = amount.multiply(payableDays).divide(new BigDecimal(totalDays), 0, RoundingMode.HALF_UP);
+        }
+      }
+      amount = amount.setScale(0, RoundingMode.HALF_UP);
+      if (amount.compareTo(BigDecimal.ZERO) != 0) out.add(new DeductionLine(f[0], amount));
+    }
+    return out;
+  }
+
+  private static BigDecimal parseBd(String s) {
+    try { return new BigDecimal(s.trim()); } catch (Exception e) { return BigDecimal.ZERO; }
+  }
+
+  private static BigDecimal parseBdOrNull(String s) {
+    if (s == null || s.isBlank()) return null;
+    try { return new BigDecimal(s.trim()); } catch (Exception e) { return null; }
   }
 }

@@ -75,6 +75,14 @@ public class PayrollProfileEntity extends BaseEntity {
   @Column(length = 15)
   private String pan;
 
+  /** Identity documents as a JSON array of {type, number} — Aadhaar, PAN and any user-added extras. */
+  @Column(columnDefinition = "text")
+  private String documents;
+
+  /** Salary components (earnings + deductions) as delimited text — see the frontend salaryComponents. */
+  @Column(columnDefinition = "text")
+  private String components;
+
   // ---- Assigned pre-setup policies (from Payroll -> Setup); null = none assigned ----
   @Column(name = "shift_id")
   private Long shiftId;

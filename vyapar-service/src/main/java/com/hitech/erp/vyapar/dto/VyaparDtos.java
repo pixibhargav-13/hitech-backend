@@ -162,6 +162,7 @@ public final class VyaparDtos {
       String status,
       String notes,
       Long bankAccountId,
+      Long projectId,
       List<InvoiceLineDto> lines) {}
 
   public record InvoiceLineRequest(
@@ -192,6 +193,7 @@ public final class VyaparDtos {
       BigDecimal roundOff,
       String notes,
       Long bankAccountId,
+      Long projectId,
       List<InvoiceLineRequest> lines) {}
 
   // ---- Payment ----
@@ -206,7 +208,8 @@ public final class VyaparDtos {
       String mode,
       String reference,
       String notes,
-      Long bankAccountId) {}
+      Long bankAccountId,
+      Long projectId) {}
 
   public record PaymentRequest(
       String direction,
@@ -217,7 +220,8 @@ public final class VyaparDtos {
       String mode,
       String reference,
       String notes,
-      Long bankAccountId) {}
+      Long bankAccountId,
+      Long projectId) {}
 
   // ---- Dashboard ----
   public record DashboardPoint(String label, BigDecimal value) {}

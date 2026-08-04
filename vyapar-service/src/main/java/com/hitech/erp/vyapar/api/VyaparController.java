@@ -28,8 +28,8 @@ public class VyaparController {
   // ---- Dashboard ----
   @GetMapping("/dashboard")
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
-  public ResponseEntity<DashboardSummary> dashboard(@RequestParam(name = "bankAccountId", required = false) Long bankAccountId) {
-    return ResponseEntity.ok(service.getDashboard(bankAccountId));
+  public ResponseEntity<DashboardSummary> dashboard(@RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getDashboard(projectId));
   }
 
   // ---- Parties ----
@@ -37,8 +37,8 @@ public class VyaparController {
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
   public ResponseEntity<List<PartyResponse>> getParties(
       @RequestParam(name = "type", required = false) String type,
-      @RequestParam(name = "bankAccountId", required = false) Long bankAccountId) {
-    return ResponseEntity.ok(service.getParties(type, bankAccountId));
+      @RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getParties(type, projectId));
   }
 
   @GetMapping("/parties/{id}")
@@ -84,8 +84,8 @@ public class VyaparController {
   // ---- Items ----
   @GetMapping("/items")
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
-  public ResponseEntity<List<ItemResponse>> getItems(@RequestParam(name = "bankAccountId", required = false) Long bankAccountId) {
-    return ResponseEntity.ok(service.getItems(bankAccountId));
+  public ResponseEntity<List<ItemResponse>> getItems(@RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getItems(projectId));
   }
 
   @PostMapping("/items")
@@ -133,8 +133,8 @@ public class VyaparController {
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
   public ResponseEntity<List<InvoiceResponse>> getInvoices(
       @RequestParam(name = "docType", required = false) String docType,
-      @RequestParam(name = "bankAccountId", required = false) Long bankAccountId) {
-    return ResponseEntity.ok(service.getInvoices(docType, bankAccountId));
+      @RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getInvoices(docType, projectId));
   }
 
   @GetMapping("/invoices/{id}")
@@ -167,8 +167,8 @@ public class VyaparController {
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
   public ResponseEntity<List<PaymentResponse>> getPayments(
       @RequestParam(name = "direction", required = false) String direction,
-      @RequestParam(name = "bankAccountId", required = false) Long bankAccountId) {
-    return ResponseEntity.ok(service.getPayments(direction, bankAccountId));
+      @RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getPayments(direction, projectId));
   }
 
   @PostMapping("/payments")

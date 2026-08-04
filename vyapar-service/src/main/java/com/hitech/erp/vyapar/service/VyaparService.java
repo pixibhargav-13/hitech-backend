@@ -54,16 +54,15 @@ public class VyaparService {
   // ================= Parties =================
 
   @Transactional(readOnly = true)
-  public List<PartyResponse> getParties(String type, Long bankAccountId) {
+  public List<PartyResponse> getParties(String type, Long projectId) {
     List<PartyEntity> parties =
         (type == null || type.isBlank())
             ? partyRepository.findAllByOrderByNameAsc()
             : partyRepository.findAllByPartyTypeOrderByNameAsc(type.toUpperCase());
-    Map<Long, BigDecimal> balances = balancesByParty(bankAccountId);
-    return parties.stream()
-        .filter(p -> inScope(p.getBankAccountId(), bankAccountId))
-        .map(p -> toParty(p, balances))
-        .toList();
+    // Parties are global master data — always listed. Only their derived balances follow the
+    // selected project scope (via the documents/payments booked against them).
+    Map<Long, BigDecimal> balances = balancesByParty(projectId);
+    return parties.stream().map(p -> toParty(p, balances)).toList();
   }
 
   @Transactional(readOnly = true)
@@ -217,11 +216,11 @@ public class VyaparService {
    * Net position per party: sales add to what they owe, purchases subtract, payments settle.
    * Positive = receivable, negative = payable.
    */
-  private Map<Long, BigDecimal> balancesByParty(Long bankAccountId) {
+  private Map<Long, BigDecimal> balancesByParty(Long projectId) {
     Map<Long, BigDecimal> out = new LinkedHashMap<>();
     for (InvoiceEntity inv : invoiceRepository.findAll()) {
       if (inv.getParty() == null || !POSTED.contains(inv.getDocType())) continue;
-      if (!inScope(inv.getBankAccountId(), bankAccountId)) continue;
+      if (!inScope(inv.getProjectId(), projectId)) continue;
       BigDecimal outstanding = nz(inv.getTotal()).subtract(nz(inv.getPaidAmount()));
       BigDecimal signed =
           switch (inv.getDocType()) {
@@ -235,7 +234,7 @@ public class VyaparService {
     }
     for (PaymentEntity pay : paymentRepository.findAll()) {
       if (pay.getParty() == null) continue;
-      if (!inScope(pay.getBankAccountId(), bankAccountId)) continue;
+      if (!inScope(pay.getProjectId(), projectId)) continue;
       // Money in reduces a receivable; money out reduces a payable.
       BigDecimal signed = "IN".equals(pay.getDirection()) ? nz(pay.getAmount()).negate() : nz(pay.getAmount());
       out.merge(pay.getParty().getId(), signed, BigDecimal::add);
@@ -246,11 +245,9 @@ public class VyaparService {
   // ================= Items =================
 
   @Transactional(readOnly = true)
-  public List<ItemResponse> getItems(Long bankAccountId) {
-    return itemRepository.findAllByOrderByNameAsc().stream()
-        .filter(i -> inScope(i.getBankAccountId(), bankAccountId))
-        .map(this::toItem)
-        .toList();
+  public List<ItemResponse> getItems(Long projectId) {
+    // Items and their stock are global master data — shared across every project, never scoped.
+    return itemRepository.findAllByOrderByNameAsc().stream().map(this::toItem).toList();
   }
 
   @Transactional
@@ -394,13 +391,13 @@ public class VyaparService {
   // ================= Invoices =================
 
   @Transactional(readOnly = true)
-  public List<InvoiceResponse> getInvoices(String docType, Long bankAccountId) {
+  public List<InvoiceResponse> getInvoices(String docType, Long projectId) {
     List<InvoiceEntity> list =
         (docType == null || docType.isBlank())
             ? invoiceRepository.findAllByOrderByIdDesc()
             : invoiceRepository.findAllByDocTypeOrderByIdDesc(docType.toUpperCase());
     return list.stream()
-        .filter(inv -> inScope(inv.getBankAccountId(), bankAccountId))
+        .filter(inv -> inScope(inv.getProjectId(), projectId))
         .map(this::toInvoice)
         .toList();
   }
@@ -445,6 +442,7 @@ public class VyaparService {
 
   private void applyInvoice(InvoiceEntity inv, InvoiceRequest r) {
     if (r.bankAccountId() != null) inv.setBankAccountId(r.bankAccountId());
+    if (r.projectId() != null) inv.setProjectId(r.projectId());
     inv.setParty(r.partyId() == null ? null : requireParty(r.partyId()));
     inv.setInvoiceDate(r.invoiceDate() == null ? LocalDate.now().toString() : r.invoiceDate());
     inv.setDueDate(r.dueDate());
@@ -574,19 +572,19 @@ public class VyaparService {
         money(inv.getTotal()), money(inv.getPaidAmount()), money(balance),
         inv.getPaymentType(), inv.isCash(), inv.getStateOfSupply(), inv.getInvoicePrefix(),
         inv.getTerms(), nz(inv.getDiscountPercent()), money(inv.getRoundOff()),
-        status, inv.getNotes(), inv.getBankAccountId(), lines);
+        status, inv.getNotes(), inv.getBankAccountId(), inv.getProjectId(), lines);
   }
 
   // ================= Payments =================
 
   @Transactional(readOnly = true)
-  public List<PaymentResponse> getPayments(String direction, Long bankAccountId) {
+  public List<PaymentResponse> getPayments(String direction, Long projectId) {
     List<PaymentEntity> list =
         (direction == null || direction.isBlank())
             ? paymentRepository.findAllByOrderByIdDesc()
             : paymentRepository.findAllByDirectionOrderByIdDesc(direction.toUpperCase());
     return list.stream()
-        .filter(p -> inScope(p.getBankAccountId(), bankAccountId))
+        .filter(p -> inScope(p.getProjectId(), projectId))
         .map(this::toPayment)
         .toList();
   }
@@ -595,6 +593,7 @@ public class VyaparService {
   public PaymentResponse createPayment(PaymentRequest r) {
     PaymentEntity p = new PaymentEntity();
     p.setBankAccountId(r.bankAccountId());
+    p.setProjectId(r.projectId());
     p.setDirection(r.direction() == null ? "IN" : r.direction().toUpperCase());
     p.setParty(r.partyId() == null ? null : requireParty(r.partyId()));
     p.setInvoiceId(r.invoiceId());
@@ -629,21 +628,21 @@ public class VyaparService {
         p.getId(), p.getDirection(),
         p.getParty() == null ? null : p.getParty().getId(),
         p.getParty() == null ? null : p.getParty().getName(),
-        p.getInvoiceId(), p.getPaymentDate(), money(p.getAmount()), p.getMode(), p.getReference(), p.getNotes(), p.getBankAccountId());
+        p.getInvoiceId(), p.getPaymentDate(), money(p.getAmount()), p.getMode(), p.getReference(), p.getNotes(), p.getBankAccountId(), p.getProjectId());
   }
 
   // ================= Dashboard =================
 
   @Transactional(readOnly = true)
-  public DashboardSummary getDashboard(Long bankAccountId) {
-    Map<Long, BigDecimal> balances = balancesByParty(bankAccountId);
+  public DashboardSummary getDashboard(Long projectId) {
+    Map<Long, BigDecimal> balances = balancesByParty(projectId);
     BigDecimal receivable = BigDecimal.ZERO;
     BigDecimal payable = BigDecimal.ZERO;
     long recvParties = 0;
     long payParties = 0;
 
+    // Parties are global; their receivable/payable position follows the project-scoped balances.
     for (PartyEntity p : partyRepository.findAll()) {
-      if (!inScope(p.getBankAccountId(), bankAccountId)) continue;
       BigDecimal bal = nz(p.getOpeningBalance()).add(balances.getOrDefault(p.getId(), BigDecimal.ZERO));
       if (bal.compareTo(BigDecimal.ZERO) > 0) {
         receivable = receivable.add(bal);
@@ -664,7 +663,7 @@ public class VyaparService {
     for (int d = 1; d <= daysInMonth; d++) daily.put(String.format("%s-%02d", monthPrefix, d), BigDecimal.ZERO);
 
     for (InvoiceEntity inv : invoiceRepository.findAll()) {
-      if (!inScope(inv.getBankAccountId(), bankAccountId)) continue;
+      if (!inScope(inv.getProjectId(), projectId)) continue;
       if ("SALE".equals(inv.getDocType())) {
         totalSale = totalSale.add(nz(inv.getTotal()));
         String date = inv.getInvoiceDate();
@@ -679,11 +678,11 @@ public class VyaparService {
 
     BigDecimal cashIn = BigDecimal.ZERO;
     for (PaymentEntity p : paymentRepository.findAll()) {
-      if (!inScope(p.getBankAccountId(), bankAccountId)) continue;
+      if (!inScope(p.getProjectId(), projectId)) continue;
       cashIn = "IN".equals(p.getDirection()) ? cashIn.add(nz(p.getAmount())) : cashIn.subtract(nz(p.getAmount()));
     }
 
-    List<ItemResponse> items = getItems(bankAccountId);
+    List<ItemResponse> items = getItems(projectId);
     BigDecimal stockValue = items.stream().map(ItemResponse::stockValue).reduce(BigDecimal.ZERO, BigDecimal::add);
     long lowStock = items.stream().filter(ItemResponse::lowStock).count();
 
@@ -698,9 +697,9 @@ public class VyaparService {
 
   // ================= helpers =================
 
-  /** A null filter means "all bank accounts"; otherwise the record must match. */
-  private static boolean inScope(Long recordBankAccountId, Long filter) {
-    return filter == null || filter.equals(recordBankAccountId);
+  /** A null filter means "all projects"; otherwise the record must belong to that project. */
+  private static boolean inScope(Long recordProjectId, Long filter) {
+    return filter == null || filter.equals(recordProjectId);
   }
 
   private PartyEntity requireParty(Long id) {

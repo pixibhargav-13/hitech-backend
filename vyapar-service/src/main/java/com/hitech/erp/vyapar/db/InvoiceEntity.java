@@ -26,9 +26,13 @@ import lombok.Setter;
 @Table(name = "vyapar_invoices")
 public class InvoiceEntity extends BaseEntity {
 
-  /** The bank/cash account this document belongs to (null = all accounts). */
+  /** The bank/cash account used to settle this document — a payment method, not the scope lens. */
   @Column(name = "bank_account_id")
   private Long bankAccountId;
+
+  /** The construction project this document belongs to (null = unassigned / visible under All Projects). */
+  @Column(name = "project_id")
+  private Long projectId;
 
   /** SALE, PURCHASE, ESTIMATE, SALE_ORDER, DELIVERY_CHALLAN, SALE_RETURN, PURCHASE_RETURN. */
   @Column(name = "doc_type", nullable = false, length = 30)
