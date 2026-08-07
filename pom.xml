@@ -17,6 +17,7 @@
         <module>audit-service</module>
         <module>vyapar-service</module>
         <module>payroll-service</module>
+        <module>tender-service</module>
         <module>web-app</module>
     </modules>
 
@@ -123,6 +124,11 @@
             <dependency>
                 <groupId>com.hitech</groupId>
                 <artifactId>payroll-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.hitech</groupId>
+                <artifactId>tender-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
