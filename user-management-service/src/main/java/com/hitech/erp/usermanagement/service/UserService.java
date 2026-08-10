@@ -70,6 +70,7 @@ public class UserService {
     user.setDepartment(findDepartment(request.getDepartmentId()));
     user.setStaffType(request.getStaffType());
     user.setOnPayroll(Boolean.TRUE.equals(request.getOnPayroll()));
+    user.setPhotoUrl(emptyToNull(request.getPhotoUrl()));
 
     return mapper.toUserResponse(userRepository.save(user));
   }
@@ -98,6 +99,10 @@ public class UserService {
     }
     if (request.getOnPayroll() != null) {
       user.setOnPayroll(request.getOnPayroll());
+    }
+    // Photo: a null field means "unchanged"; an empty string is an explicit "remove the photo".
+    if (request.getPhotoUrl() != null) {
+      user.setPhotoUrl(emptyToNull(request.getPhotoUrl()));
     }
 
     return mapper.toUserResponse(userRepository.save(user));
@@ -142,6 +147,11 @@ public class UserService {
     return userRepository
         .findById(id)
         .orElseThrow(() -> new EntityNotFoundException("User not found: " + id));
+  }
+
+  /** Treat a blank photo string as "no photo" so an empty upload clears rather than stores "". */
+  private static String emptyToNull(String value) {
+    return (value == null || value.isBlank()) ? null : value;
   }
 
   /** Department is optional — 0 or null clears it. */

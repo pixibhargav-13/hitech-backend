@@ -526,6 +526,10 @@ components:
           type: boolean
           default: false
           description: On payroll — can punch and has a payroll profile.
+        photoUrl:
+          type: string
+          nullable: true
+          description: Profile photo as a data URL (or hosted URL).
 
     UserUpdateRequest:
       type: object
@@ -549,6 +553,10 @@ components:
           description: On payroll — can punch and has a payroll profile.
         isActive:
           type: boolean
+        photoUrl:
+          type: string
+          nullable: true
+          description: Profile photo as a data URL (or hosted URL). Empty string clears it.
 
     PasswordUpdateRequest:
       type: object
@@ -586,6 +594,10 @@ components:
         onPayroll:
           type: boolean
           description: On payroll — can punch and has a payroll profile.
+        photoUrl:
+          type: string
+          nullable: true
+          description: Profile photo as a data URL (or hosted URL).
 
     UserPageResponse:
       type: object

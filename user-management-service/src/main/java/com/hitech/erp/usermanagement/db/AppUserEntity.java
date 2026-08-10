@@ -47,4 +47,8 @@ public class AppUserEntity extends BaseEntity {
   /** Whether this member is on payroll — can punch and has a payroll profile. */
   @Column(name = "on_payroll", nullable = false)
   private boolean onPayroll;
+
+  /** Profile photo, stored inline as a data URL (small, downscaled client-side). Null until set. */
+  @Column(name = "photo_url", columnDefinition = "text")
+  private String photoUrl;
 }
