@@ -460,6 +460,15 @@ public class PayrollController {
     return ResponseEntity.ok(runService.mySlips(currentUserId()));
   }
 
+  /** One member's payslips across every run — self-service reads own; managers read anyone's.
+   *  Feeds the unified party ledger (a staff member's salary history) in Vyapar. */
+  @GetMapping("/payslips/member/{userId}")
+  @PreAuthorize("hasAuthority('PAYROLL:VIEW')")
+  public ResponseEntity<List<PayslipResponse>> memberPayslips(@PathVariable("userId") Long userId) {
+    requireSelfOrManager(userId);
+    return ResponseEntity.ok(runService.mySlips(userId));
+  }
+
   // ---- Work locations (geofences) ----
   @GetMapping("/locations")
   @PreAuthorize(MANAGE)
