@@ -83,6 +83,8 @@ public final class VyaparDtos {
       BigDecimal stockQty,
       BigDecimal lowStockAlert,
       boolean isService,
+      /** Item photo as a data URL, or null. */
+      String imageDataUrl,
       boolean isActive,
       Long bankAccountId,
       /** stockQty * purchasePrice — what the shelf is worth. */
@@ -120,6 +122,7 @@ public final class VyaparDtos {
       BigDecimal stockQty,
       BigDecimal lowStockAlert,
       Boolean isService,
+      String imageDataUrl,
       Boolean isActive,
       Long bankAccountId) {}
 
@@ -153,13 +156,20 @@ public final class VyaparDtos {
       BigDecimal paidAmount,
       BigDecimal balance,
       String paymentType,
+      /** Cheque / NEFT number for the amount received with the document. */
+      String paymentReference,
+      /** Walk-in details for a cash bill with no saved party behind it. */
+      String billingName,
+      String billingAddress,
       boolean isCash,
       String stateOfSupply,
       String invoicePrefix,
       String terms,
       BigDecimal discountPercent,
       BigDecimal roundOff,
+      /** Paid / Partial / Unpaid, or Cancelled — cancelled wins over any balance. */
       String status,
+      boolean cancelled,
       String notes,
       Long bankAccountId,
       Long projectId,
@@ -186,6 +196,9 @@ public final class VyaparDtos {
       BigDecimal discountPercent,
       BigDecimal paidAmount,
       String paymentType,
+      String paymentReference,
+      String billingName,
+      String billingAddress,
       Boolean isCash,
       String stateOfSupply,
       String invoicePrefix,
@@ -209,7 +222,11 @@ public final class VyaparDtos {
       String reference,
       String notes,
       Long bankAccountId,
-      Long projectId) {}
+      Long projectId,
+      /** Sum of this payment's links; amount − linkedAmount is what shows as "Unused". */
+      BigDecimal linkedAmount,
+      BigDecimal unusedAmount,
+      List<PaymentLinkDto> links) {}
 
   public record PaymentRequest(
       String direction,
@@ -221,7 +238,48 @@ public final class VyaparDtos {
       String reference,
       String notes,
       Long bankAccountId,
-      Long projectId) {}
+      Long projectId,
+      /** Vyapar's "Link Payment to Txns" — how this receipt is spread across open documents. */
+      List<PaymentLinkDto> links) {}
+
+  /** How much of a payment is applied to one document. */
+  public record PaymentLinkDto(Long invoiceId, String invoiceNo, String docType, BigDecimal amount) {}
+
+  /** An open document offered in the Link Payment dialog. */
+  public record OpenTxnRow(
+      Long id,
+      String docType,
+      String type,
+      String number,
+      String date,
+      BigDecimal total,
+      /** Still outstanding after every link already recorded against it. */
+      BigDecimal balance,
+      /** How much of *this* payment is currently linked to it. */
+      BigDecimal linkedAmount) {}
+
+  /** One line of a document's audit trail. */
+  public record InvoiceHistoryRow(Long id, String action, String detail, Long userId, String at) {}
+
+  // ---- Settings ----
+  public record SettingsDto(
+      int amountDecimals,
+      int quantityDecimals,
+      boolean roundOffEnabled,
+      String roundOffMode,
+      int roundOffTo,
+      boolean dueDatesEnabled,
+      boolean linkPaymentsEnabled,
+      boolean itemWiseTax,
+      boolean itemWiseDiscount,
+      boolean displayPurchasePrice,
+      boolean transactionWiseTax,
+      boolean transactionWiseDiscount,
+      boolean estimateEnabled,
+      boolean proformaEnabled,
+      boolean ordersEnabled,
+      boolean deliveryChallanEnabled,
+      String prefixes) {}
 
   // ---- Dashboard ----
   public record DashboardPoint(String label, BigDecimal value) {}

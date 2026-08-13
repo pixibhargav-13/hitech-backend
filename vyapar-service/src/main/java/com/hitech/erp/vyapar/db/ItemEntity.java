@@ -58,4 +58,8 @@ public class ItemEntity extends BaseEntity {
 
   @Column(name = "is_active", nullable = false)
   private boolean active = true;
+
+  /** Item photo, held inline as a downscaled data URL — same approach as the firm logo. */
+  @Column(name = "image_data_url", columnDefinition = "TEXT")
+  private String imageDataUrl;
 }

@@ -162,6 +162,40 @@ public class VyaparController {
     return ResponseEntity.noContent().build();
   }
 
+  // ---- Document row actions (Vyapar's ⋮ menu) ----
+
+  /** Cancel keeps the document and its number but takes it out of the balances. */
+  @PostMapping("/invoices/{id}/cancel")
+  @PreAuthorize("hasAuthority('VYAPAR:EDIT')")
+  public ResponseEntity<InvoiceResponse> cancelInvoice(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.setCancelled(id, true, currentUserId()));
+  }
+
+  @PostMapping("/invoices/{id}/reopen")
+  @PreAuthorize("hasAuthority('VYAPAR:EDIT')")
+  public ResponseEntity<InvoiceResponse> reopenInvoice(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.setCancelled(id, false, currentUserId()));
+  }
+
+  @PostMapping("/invoices/{id}/duplicate")
+  @PreAuthorize("hasAuthority('VYAPAR:CREATE')")
+  public ResponseEntity<InvoiceResponse> duplicateInvoice(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.duplicateInvoice(id, currentUserId()));
+  }
+
+  /** Sale → credit note, purchase → debit note. */
+  @PostMapping("/invoices/{id}/convert-to-return")
+  @PreAuthorize("hasAuthority('VYAPAR:CREATE')")
+  public ResponseEntity<InvoiceResponse> convertToReturn(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.convertToReturn(id, currentUserId()));
+  }
+
+  @GetMapping("/invoices/{id}/history")
+  @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
+  public ResponseEntity<List<InvoiceHistoryRow>> invoiceHistory(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.invoiceHistory(id));
+  }
+
   // ---- Payments ----
   @GetMapping("/payments")
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
@@ -182,5 +216,45 @@ public class VyaparController {
   public ResponseEntity<Void> deletePayment(@PathVariable("id") Long id) {
     service.deletePayment(id);
     return ResponseEntity.noContent().build();
+  }
+
+  // ---- Link Payment to Txns ----
+
+  /** The party's still-open documents, for the Link Payment dialog. */
+  @GetMapping("/parties/{id}/open-transactions")
+  @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
+  public ResponseEntity<List<OpenTxnRow>> openTransactions(
+      @PathVariable("id") Long id,
+      @RequestParam(name = "paymentId", required = false) Long paymentId) {
+    return ResponseEntity.ok(service.openTransactions(id, paymentId));
+  }
+
+  @GetMapping("/payments/{id}/links")
+  @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
+  public ResponseEntity<List<PaymentLinkDto>> paymentLinks(@PathVariable("id") Long id) {
+    return ResponseEntity.ok(service.paymentLinks(id));
+  }
+
+  @PutMapping("/payments/{id}/links")
+  @PreAuthorize("hasAuthority('VYAPAR:EDIT')")
+  public ResponseEntity<PaymentResponse> relinkPayment(
+      @PathVariable("id") Long id, @RequestBody PaymentLinksRequest request) {
+    return ResponseEntity.ok(service.relinkPayment(id, request.links()));
+  }
+
+  public record PaymentLinksRequest(List<PaymentLinkDto> links) {}
+
+  // ---- Settings ----
+
+  @GetMapping("/settings")
+  @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
+  public ResponseEntity<SettingsDto> getSettings() {
+    return ResponseEntity.ok(service.getSettings());
+  }
+
+  @PutMapping("/settings")
+  @PreAuthorize("hasAuthority('VYAPAR:EDIT')")
+  public ResponseEntity<SettingsDto> updateSettings(@RequestBody SettingsDto r) {
+    return ResponseEntity.ok(service.updateSettings(r));
   }
 }

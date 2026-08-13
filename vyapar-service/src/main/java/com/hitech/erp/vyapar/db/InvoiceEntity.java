@@ -70,6 +70,17 @@ public class InvoiceEntity extends BaseEntity {
   @Column(name = "payment_type", nullable = false, length = 40)
   private String paymentType = "Cash";
 
+  /** Cheque / NEFT number for the amount received with the document. */
+  @Column(name = "payment_reference", length = 120)
+  private String paymentReference;
+
+  /** Walk-in details for a cash bill with no saved party behind it. */
+  @Column(name = "billing_name", length = 200)
+  private String billingName;
+
+  @Column(name = "billing_address", length = 500)
+  private String billingAddress;
+
   /** Vyapar's Credit/Cash toggle — cash settles the document immediately. */
   @Column(name = "is_cash", nullable = false)
   private boolean cash = true;
@@ -96,6 +107,13 @@ public class InvoiceEntity extends BaseEntity {
 
   @Column(name = "created_by")
   private Long createdBy;
+
+  /**
+   * Vyapar's "Cancel Invoice": the document stays in the books and keeps its number, but stops
+   * counting towards party balances and stock. Distinct from delete, which removes it entirely.
+   */
+  @Column(nullable = false)
+  private boolean cancelled = false;
 
   @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("sortOrder ASC, id ASC")
