@@ -479,7 +479,12 @@ public class VyaparService {
   }
 
   private ItemResponse toItem(ItemEntity i) {
-    BigDecimal value = nz(i.getStockQty()).multiply(nz(i.getPurchasePrice()));
+    // A shelf that's gone negative is worth nothing, not a negative amount. Stock goes below zero
+    // when consumption is recorded against something that was never booked in — the client's books
+    // have nine such items — and multiplying that by a price would credit the balance sheet for
+    // stock nobody has. Vyapar reports zero for every one of them, so we do too.
+    BigDecimal value =
+        nz(i.getStockQty()).max(BigDecimal.ZERO).multiply(nz(i.getPurchasePrice()));
     boolean low =
         !i.isService()
             && nz(i.getLowStockAlert()).compareTo(BigDecimal.ZERO) > 0
