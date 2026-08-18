@@ -3,6 +3,7 @@ package com.hitech.erp.vyapar.db;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PaymentRepository extends JpaRepository<PaymentEntity, Long> {
   List<PaymentEntity> findAllByOrderByIdDesc();
@@ -29,4 +30,15 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, Long> {
       GROUP BY p.bankAccountId
       """)
   List<Object[]> sumByBankAccount();
+
+  /** The same, limited to one project — what the header's project scope asks for. */
+  @Query("""
+      SELECT p.bankAccountId, SUM(CASE WHEN p.direction = 'IN' THEN p.amount ELSE -p.amount END)
+      FROM PaymentEntity p
+      WHERE p.bankAccountId IS NOT NULL AND p.projectId = :projectId
+      GROUP BY p.bankAccountId
+      """)
+  List<Object[]> sumByBankAccountForProject(@Param("projectId") Long projectId);
+
+  List<PaymentEntity> findByBankAccountIdAndProjectIdOrderByIdDesc(Long bankAccountId, Long projectId);
 }

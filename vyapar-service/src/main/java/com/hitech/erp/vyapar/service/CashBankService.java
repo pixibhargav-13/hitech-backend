@@ -73,25 +73,39 @@ public class CashBankService {
    * edit, cancel and delete of the underlying document, and it fixes the already-migrated books
    * with no backfill.
    */
-  private Map<Long, BigDecimal> accountMovements(Long ownerUserId) {
+  private Map<Long, BigDecimal> accountMovements(Long ownerUserId, Long projectId) {
     Map<Long, BigDecimal> sums = new HashMap<>();
-    for (Object[] row : txnRepository.sumByAccount(ownerUserId)) {
+    // Manual deposits and withdrawals carry no project — they are adjustments to the account
+    // itself, not site spend — so they only count towards the unscoped "all projects" figure.
+    if (projectId == null) {
+      for (Object[] row : txnRepository.sumByAccount(ownerUserId)) {
+        sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
+      }
+    }
+    List<Object[]> payments =
+        projectId == null ? paymentRepository.sumByBankAccount() : paymentRepository.sumByBankAccountForProject(projectId);
+    for (Object[] row : payments) {
       sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
     }
-    for (Object[] row : paymentRepository.sumByBankAccount()) {
-      sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
-    }
-    for (Object[] row : invoiceRepository.sumPaidByBankAccount()) {
+    List<Object[]> docs =
+        projectId == null
+            ? invoiceRepository.sumPaidByBankAccount()
+            : invoiceRepository.sumPaidByBankAccountForProject(projectId);
+    for (Object[] row : docs) {
       sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
     }
     return sums;
   }
 
   @Transactional(readOnly = true)
-  public List<BankAccountResponse> getBankAccounts(Long ownerUserId) {
+  public List<BankAccountResponse> getBankAccounts(Long ownerUserId, Long projectId) {
     List<BankAccountEntity> accounts = bankAccountRepository.findAllByOwnerUserIdOrderByNameAsc(ownerUserId);
-    Map<Long, BigDecimal> sums = accountMovements(ownerUserId);
-    return accounts.stream().map(a -> toBankAccount(a, sums.getOrDefault(a.getId(), BigDecimal.ZERO))).toList();
+    Map<Long, BigDecimal> sums = accountMovements(ownerUserId, projectId);
+    // The accounts themselves are payment methods shared across every site, so the list never
+    // shrinks with the scope — only the money attributed to each does.
+    return accounts.stream()
+        .map(a -> toBankAccount(a, sums.getOrDefault(a.getId(), BigDecimal.ZERO), projectId))
+        .toList();
   }
 
   @Transactional
@@ -99,15 +113,15 @@ public class CashBankService {
     BankAccountEntity a = new BankAccountEntity();
     a.setOwnerUserId(ownerUserId);
     applyBankAccount(a, r);
-    return toBankAccount(bankAccountRepository.save(a), BigDecimal.ZERO);
+    return toBankAccount(bankAccountRepository.save(a), BigDecimal.ZERO, null);
   }
 
   @Transactional
   public BankAccountResponse updateBankAccount(Long ownerUserId, Long id, BankAccountRequest r) {
     BankAccountEntity a = requireBankAccount(ownerUserId, id);
     applyBankAccount(a, r);
-    BigDecimal sum = accountMovements(ownerUserId).getOrDefault(id, BigDecimal.ZERO);
-    return toBankAccount(bankAccountRepository.save(a), sum);
+    BigDecimal sum = accountMovements(ownerUserId, null).getOrDefault(id, BigDecimal.ZERO);
+    return toBankAccount(bankAccountRepository.save(a), sum, null);
   }
 
   @Transactional
@@ -125,12 +139,20 @@ public class CashBankService {
    * on the frontend maps the type label ("Sale", "Payment-In") plus the id onto a route.
    */
   @Transactional(readOnly = true)
-  public List<CashBankTxnResponse> getAccountTxns(Long ownerUserId, Long id) {
+  public List<CashBankTxnResponse> getAccountTxns(Long ownerUserId, Long id, Long projectId) {
     requireBankAccount(ownerUserId, id);
-    List<CashBankTxnResponse> rows = new ArrayList<>(
-        txnRepository.findAllByOwnerUserIdAndAccountIdOrderByIdDesc(ownerUserId, id).stream().map(this::toTxn).toList());
+    List<CashBankTxnResponse> rows = new ArrayList<>();
+    // Manual entries have no project, so they appear only in the unscoped view. See accountMovements.
+    if (projectId == null) {
+      rows.addAll(
+          txnRepository.findAllByOwnerUserIdAndAccountIdOrderByIdDesc(ownerUserId, id).stream().map(this::toTxn).toList());
+    }
 
-    for (PaymentEntity p : paymentRepository.findByBankAccountIdOrderByIdDesc(id)) {
+    List<PaymentEntity> pays =
+        projectId == null
+            ? paymentRepository.findByBankAccountIdOrderByIdDesc(id)
+            : paymentRepository.findByBankAccountIdAndProjectIdOrderByIdDesc(id, projectId);
+    for (PaymentEntity p : pays) {
       boolean in = "IN".equalsIgnoreCase(p.getDirection());
       rows.add(new CashBankTxnResponse(
           p.getId(),
@@ -143,7 +165,11 @@ public class CashBankService {
           p.getReference()));
     }
 
-    for (InvoiceEntity i : invoiceRepository.findSettledByBankAccount(id)) {
+    List<InvoiceEntity> docs =
+        projectId == null
+            ? invoiceRepository.findSettledByBankAccount(id)
+            : invoiceRepository.findSettledByBankAccountAndProject(id, projectId);
+    for (InvoiceEntity i : docs) {
       boolean in = "SALE".equals(i.getDocType()) || "PURCHASE_RETURN".equals(i.getDocType());
       rows.add(new CashBankTxnResponse(
           i.getId(),
@@ -195,7 +221,12 @@ public class CashBankService {
     if (r.isActive() != null) a.setActive(r.isActive());
   }
 
-  private BankAccountResponse toBankAccount(BankAccountEntity a, BigDecimal txnSum) {
+  /**
+   * @param projectId when set, the opening balance is left out of the figure: an account's opening
+   *     float belongs to the account, not to any one site, so adding it to every project's view
+   *     would count the same money once per project.
+   */
+  private BankAccountResponse toBankAccount(BankAccountEntity a, BigDecimal txnSum, Long projectId) {
     return new BankAccountResponse(
         a.getId(),
         a.getName(),
@@ -209,7 +240,7 @@ public class CashBankService {
         a.isPrintUpiQr(),
         a.isPrintBankDetails(),
         a.isActive(),
-        money(a.getOpeningBalance().add(nz(txnSum))));
+        money(projectId == null ? a.getOpeningBalance().add(nz(txnSum)) : nz(txnSum)));
   }
 
   // ================= Cash in hand =================

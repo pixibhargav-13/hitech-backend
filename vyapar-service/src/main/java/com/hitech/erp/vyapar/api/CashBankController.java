@@ -31,8 +31,9 @@ public class CashBankController {
   // ---- Bank accounts ----
   @GetMapping("/bank-accounts")
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
-  public ResponseEntity<List<BankAccountResponse>> getBankAccounts() {
-    return ResponseEntity.ok(service.getBankAccounts(currentUserId()));
+  public ResponseEntity<List<BankAccountResponse>> getBankAccounts(
+      @RequestParam(value = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getBankAccounts(currentUserId(), projectId));
   }
 
   @PostMapping("/bank-accounts")
@@ -56,8 +57,10 @@ public class CashBankController {
 
   @GetMapping("/bank-accounts/{id}/transactions")
   @PreAuthorize("hasAuthority('VYAPAR:VIEW')")
-  public ResponseEntity<List<CashBankTxnResponse>> getAccountTxns(@PathVariable("id") Long id) {
-    return ResponseEntity.ok(service.getAccountTxns(currentUserId(), id));
+  public ResponseEntity<List<CashBankTxnResponse>> getAccountTxns(
+      @PathVariable("id") Long id,
+      @RequestParam(value = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getAccountTxns(currentUserId(), id, projectId));
   }
 
   // ---- Cash in hand ----

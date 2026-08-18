@@ -38,6 +38,26 @@ public interface InvoiceRepository extends JpaRepository<InvoiceEntity, Long> {
       """)
   List<Object[]> sumPaidByBankAccount();
 
+  /** The same, limited to one project. */
+  @Query("""
+      SELECT i.bankAccountId,
+             SUM(CASE WHEN i.docType IN ('SALE', 'PURCHASE_RETURN') THEN i.paidAmount ELSE -i.paidAmount END)
+      FROM InvoiceEntity i
+      WHERE i.bankAccountId IS NOT NULL AND i.paidAmount > 0 AND i.cancelled = false
+        AND i.projectId = :projectId
+      GROUP BY i.bankAccountId
+      """)
+  List<Object[]> sumPaidByBankAccountForProject(@Param("projectId") Long projectId);
+
+  @Query("""
+      SELECT i FROM InvoiceEntity i
+      WHERE i.bankAccountId = :accountId AND i.paidAmount > 0 AND i.cancelled = false
+        AND i.projectId = :projectId
+      ORDER BY i.id DESC
+      """)
+  List<InvoiceEntity> findSettledByBankAccountAndProject(@Param("accountId") Long accountId,
+                                                         @Param("projectId") Long projectId);
+
   long countByDocType(String docType);
 
   /**
