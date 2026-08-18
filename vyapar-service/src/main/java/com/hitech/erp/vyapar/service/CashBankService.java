@@ -9,12 +9,18 @@ import com.hitech.erp.vyapar.db.ChequeEntity;
 import com.hitech.erp.vyapar.db.ChequeRepository;
 import com.hitech.erp.vyapar.db.FirmProfileEntity;
 import com.hitech.erp.vyapar.db.FirmProfileRepository;
+import com.hitech.erp.vyapar.db.InvoiceEntity;
+import com.hitech.erp.vyapar.db.InvoiceRepository;
 import com.hitech.erp.vyapar.db.LoanAccountEntity;
 import com.hitech.erp.vyapar.db.LoanAccountRepository;
+import com.hitech.erp.vyapar.db.PaymentEntity;
+import com.hitech.erp.vyapar.db.PaymentRepository;
 import com.hitech.erp.vyapar.dto.CashBankDtos.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +31,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Cash &amp; Bank: bank accounts, the cash drawer, cheques and loans. Every row is private to the
- * user who created it — balances are derived from {@code vyapar_cash_bank_txns} with a single
- * grouped aggregate rather than by summing in Java, so listing accounts stays one query no
- * matter how long a ledger grows.
+ * user who created it. An account's balance is the sum of three things: its manual entries in
+ * {@code vyapar_cash_bank_txns}, the receipts banked into it, and the bills settled through it.
+ * Each is a grouped aggregate rather than a sum in Java, so listing accounts stays three queries
+ * no matter how long the ledgers grow.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,6 +45,8 @@ public class CashBankService {
   private final ChequeRepository chequeRepository;
   private final LoanAccountRepository loanAccountRepository;
   private final FirmProfileRepository firmProfileRepository;
+  private final PaymentRepository paymentRepository;
+  private final InvoiceRepository invoiceRepository;
 
   /** A logo this big already prints crisply on an A4 header; anything more just bloats every load. */
   private static final int MAX_LOGO_CHARS = 400_000;
@@ -52,13 +61,36 @@ public class CashBankService {
 
   // ================= Bank accounts =================
 
+  /**
+   * Every account's net movement, from all three things that move its money.
+   *
+   * The bank screen used to read only `vyapar_cash_bank_txns` — the manual deposit / withdraw /
+   * transfer entries. Nothing else ever writes there, so a receipt banked into HI-TECH CONSTRUCTION
+   * left that account showing zero, which is why every balance on the Banks screen was ₹0.000.
+   * Receipts and counter-paid bills are now summed in as well.
+   *
+   * Derived rather than written through: a posted copy would have to be kept in step with every
+   * edit, cancel and delete of the underlying document, and it fixes the already-migrated books
+   * with no backfill.
+   */
+  private Map<Long, BigDecimal> accountMovements(Long ownerUserId) {
+    Map<Long, BigDecimal> sums = new HashMap<>();
+    for (Object[] row : txnRepository.sumByAccount(ownerUserId)) {
+      sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
+    }
+    for (Object[] row : paymentRepository.sumByBankAccount()) {
+      sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
+    }
+    for (Object[] row : invoiceRepository.sumPaidByBankAccount()) {
+      sums.merge((Long) row[0], (BigDecimal) row[1], BigDecimal::add);
+    }
+    return sums;
+  }
+
   @Transactional(readOnly = true)
   public List<BankAccountResponse> getBankAccounts(Long ownerUserId) {
     List<BankAccountEntity> accounts = bankAccountRepository.findAllByOwnerUserIdOrderByNameAsc(ownerUserId);
-    Map<Long, BigDecimal> sums = new HashMap<>();
-    for (Object[] row : txnRepository.sumByAccount(ownerUserId)) {
-      sums.put((Long) row[0], (BigDecimal) row[1]);
-    }
+    Map<Long, BigDecimal> sums = accountMovements(ownerUserId);
     return accounts.stream().map(a -> toBankAccount(a, sums.getOrDefault(a.getId(), BigDecimal.ZERO))).toList();
   }
 
@@ -74,11 +106,7 @@ public class CashBankService {
   public BankAccountResponse updateBankAccount(Long ownerUserId, Long id, BankAccountRequest r) {
     BankAccountEntity a = requireBankAccount(ownerUserId, id);
     applyBankAccount(a, r);
-    BigDecimal sum = txnRepository.sumByAccount(ownerUserId).stream()
-        .filter(row -> id.equals(row[0]))
-        .map(row -> (BigDecimal) row[1])
-        .findFirst()
-        .orElse(BigDecimal.ZERO);
+    BigDecimal sum = accountMovements(ownerUserId).getOrDefault(id, BigDecimal.ZERO);
     return toBankAccount(bankAccountRepository.save(a), sum);
   }
 
@@ -87,10 +115,64 @@ public class CashBankService {
     bankAccountRepository.delete(requireBankAccount(ownerUserId, id));
   }
 
+  /**
+   * One account's ledger: manual entries, receipts banked into it, and bills settled through it,
+   * newest first. Same reasoning as {@link #accountMovements} — the screen said "No transactions
+   * yet" on accounts that had years of receipts against them, because only the manual entries were
+   * ever being read.
+   *
+   * The synthetic rows reuse the document's own id so the row still deep-links to it: `txnHref`
+   * on the frontend maps the type label ("Sale", "Payment-In") plus the id onto a route.
+   */
   @Transactional(readOnly = true)
   public List<CashBankTxnResponse> getAccountTxns(Long ownerUserId, Long id) {
     requireBankAccount(ownerUserId, id);
-    return txnRepository.findAllByOwnerUserIdAndAccountIdOrderByIdDesc(ownerUserId, id).stream().map(this::toTxn).toList();
+    List<CashBankTxnResponse> rows = new ArrayList<>(
+        txnRepository.findAllByOwnerUserIdAndAccountIdOrderByIdDesc(ownerUserId, id).stream().map(this::toTxn).toList());
+
+    for (PaymentEntity p : paymentRepository.findByBankAccountIdOrderByIdDesc(id)) {
+      boolean in = "IN".equalsIgnoreCase(p.getDirection());
+      rows.add(new CashBankTxnResponse(
+          p.getId(),
+          id,
+          in ? "Payment-In" : "Payment-Out",
+          p.getParty() == null ? null : p.getParty().getName(),
+          p.getPaymentDate(),
+          money(p.getAmount()),
+          in ? "in" : "out",
+          p.getReference()));
+    }
+
+    for (InvoiceEntity i : invoiceRepository.findSettledByBankAccount(id)) {
+      boolean in = "SALE".equals(i.getDocType()) || "PURCHASE_RETURN".equals(i.getDocType());
+      rows.add(new CashBankTxnResponse(
+          i.getId(),
+          id,
+          docLabel(i.getDocType()),
+          i.getParty() == null ? i.getBillingName() : i.getParty().getName(),
+          i.getInvoiceDate(),
+          money(i.getPaidAmount()),
+          in ? "in" : "out",
+          i.getInvoiceNo()));
+    }
+
+    // Newest first by date; the ledger reads chronologically regardless of which table a row is
+    // from, and a null date sinks rather than blowing up the comparator.
+    rows.sort(Comparator.comparing(
+        (CashBankTxnResponse t) -> t.date() == null ? "" : t.date(), Comparator.reverseOrder()));
+    return rows;
+  }
+
+  /** The document-type label the ledgers and the frontend's `txnHref` route table agree on. */
+  private static String docLabel(String docType) {
+    return switch (docType) {
+      case "SALE" -> "Sale";
+      case "PURCHASE" -> "Purchase";
+      case "SALE_RETURN" -> "Credit Note";
+      case "PURCHASE_RETURN" -> "Debit Note";
+      case "EXPENSE" -> "Expense";
+      default -> docType;
+    };
   }
 
   private BankAccountEntity requireBankAccount(Long ownerUserId, Long id) {
