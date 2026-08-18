@@ -2,6 +2,7 @@ package com.hitech.erp.audit.web;
 
 import com.hitech.erp.audit.db.AuditAction;
 import com.hitech.erp.audit.service.AuditRecorder;
+import com.hitech.erp.common.context.RequestProjectContext;
 import com.hitech.erp.usermanagement.security.AuthenticatedUser;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -62,6 +63,9 @@ public class AuditLoggingFilter extends OncePerRequestFilter {
         recordFor(effective, response, path, isLogin);
       } catch (Exception ignored) {
         // Auditing must never surface as a request failure.
+      } finally {
+        // The thread returns to the pool; a leftover stamp would mis-file the next request.
+        RequestProjectContext.clear();
       }
     }
   }
@@ -99,12 +103,52 @@ public class AuditLoggingFilter extends OncePerRequestFilter {
             action,
             entityType,
             entityId,
+            resolveProjectId(request, path),
             summary,
             request.getMethod(),
             path,
             status,
             clientIp(request),
             request.getHeader("User-Agent")));
+  }
+
+  /**
+   * Which project this call touched, from the cheapest reliable source first:
+   *
+   * <ol>
+   *   <li>a stamp the handling service left behind ({@link RequestProjectContext}) — the only
+   *       source that knows about a project id buried in a request body;
+   *   <li>a {@code ?projectId=} query parameter;
+   *   <li>the id in a {@code /projects/{id}/…} path.
+   * </ol>
+   */
+  static Long resolveProjectId(HttpServletRequest request, String path) {
+    Long stamped = RequestProjectContext.get();
+    if (stamped != null) return stamped;
+
+    Long fromQuery = parseLong(request.getParameter("projectId"));
+    if (fromQuery != null) return fromQuery;
+
+    return projectIdFromPath(path);
+  }
+
+  /** The {@code {id}} in {@code /api/v1/projects/{id}/…}, or null when the path isn't project-scoped. */
+  static Long projectIdFromPath(String path) {
+    String marker = API_PREFIX + "projects/";
+    int at = path.indexOf(marker);
+    if (at < 0) return null;
+    String rest = path.substring(at + marker.length());
+    int slash = rest.indexOf('/');
+    return parseLong(slash < 0 ? rest : rest.substring(0, slash));
+  }
+
+  private static Long parseLong(String s) {
+    if (s == null || s.isBlank() || !isNumeric(s.trim())) return null;
+    try {
+      return Long.valueOf(s.trim());
+    } catch (NumberFormatException ex) {
+      return null;
+    }
   }
 
   private static String describe(AuditAction action, String entityType, String entityId, int status) {
@@ -136,8 +180,22 @@ public class AuditLoggingFilter extends OncePerRequestFilter {
   }
 
   /**
+   * Trailing segments that name the <em>action</em> rather than the thing acted on. Without this,
+   * {@code /payroll/attendance/edit} attributes to "EDIT" and the trail reads "Created edit",
+   * which says nothing about what changed. Skipping them attributes to ATTENDANCE instead; the
+   * action itself is already carried separately on the row.
+   */
+  private static final java.util.Set<String> ACTION_SEGMENTS =
+      java.util.Set.of(
+          "edit", "punch", "cancel", "restore", "approve", "reject", "submit", "stage", "status",
+          "bulk", "import", "export", "link", "unlink", "reorder", "duplicate", "clone", "range",
+          "settings", "refresh", "logout", "login", "complete", "reopen", "assign", "pay", "lock",
+          "unlock", "generate", "recalculate");
+
+  /**
    * Derives the target from the URL. Walks the segments so nested resources attribute to the
    * innermost one: /projects/42/locations/7 -> LOCATION #7, /projects/42/locations -> LOCATION.
+   * Trailing action verbs are skipped — see {@link #ACTION_SEGMENTS}.
    */
   static PathTarget parsePath(String path) {
     String rest = path.substring(API_PREFIX.length());
@@ -147,6 +205,9 @@ public class AuditLoggingFilter extends OncePerRequestFilter {
       if (segment.isBlank()) continue;
       if (isNumeric(segment)) {
         id = segment;
+      } else if (ACTION_SEGMENTS.contains(segment.toLowerCase(Locale.ROOT))) {
+        // Keep whatever resource we'd already resolved; the verb isn't the subject.
+        continue;
       } else {
         resource = segment;
         id = null;

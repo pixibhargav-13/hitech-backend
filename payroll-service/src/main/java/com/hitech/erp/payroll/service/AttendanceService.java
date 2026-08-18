@@ -4,11 +4,17 @@ import com.hitech.erp.payroll.db.AttendanceEntity;
 import com.hitech.erp.payroll.db.AttendanceRepository;
 import com.hitech.erp.payroll.db.FaceEnrollmentEntity;
 import com.hitech.erp.payroll.db.FaceEnrollmentRepository;
+import com.hitech.erp.payroll.db.PayrollProfileEntity;
+import com.hitech.erp.payroll.db.PayrollProfileRepository;
+import com.hitech.erp.payroll.db.ShiftEntity;
+import com.hitech.erp.payroll.db.ShiftRepository;
 import com.hitech.erp.payroll.dto.PayrollDtos.AttendanceEditRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.AttendanceResponse;
 import com.hitech.erp.payroll.dto.PayrollDtos.FaceEnrollmentRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.FaceEnrollmentResponse;
+import com.hitech.erp.common.context.RequestProjectContext;
 import com.hitech.erp.payroll.dto.PayrollDtos.PunchRequest;
+import com.hitech.erp.usermanagement.access.ProjectScopeResolver;
 import com.hitech.erp.usermanagement.db.AppUserEntity;
 import com.hitech.erp.usermanagement.db.AppUserRepository;
 import java.math.BigDecimal;
@@ -42,6 +48,9 @@ public class AttendanceService {
   private final AppUserRepository userRepository;
   private final FaceEnrollmentRepository faceRepository;
   private final LocationService locationService;
+  private final ProjectScopeResolver projectScope;
+  private final PayrollProfileRepository profileRepository;
+  private final ShiftRepository shiftRepository;
 
   // ---- Reads ----
 
@@ -64,6 +73,8 @@ public class AttendanceService {
 
   @Transactional(readOnly = true)
   public List<AttendanceResponse> getForProject(Long projectId, LocalDate from, LocalDate to) {
+    // Holding PAYROLL:MANAGE isn't the same as being on this site — check membership too.
+    projectScope.resolve(projectId);
     List<AttendanceEntity> rows = attendanceRepository.findByProjectIdAndDateBetweenOrderByDateAsc(projectId, from, to);
     Map<Long, String> names = resolveNames(rows);
     return rows.stream().map(r -> toResponse(r, names)).toList();
@@ -105,7 +116,13 @@ public class AttendanceService {
       if (r.photo() != null && !r.photo().isBlank()) a.setPunchOutPhoto(r.photo());
     }
     if (r.projectId() != null) a.setProjectId(r.projectId());
-    a.setCode("P"); // a punch in or out both mean present
+    RequestProjectContext.set(a.getProjectId());
+
+    // Punching in marks presence provisionally; only a completed pair can say how long the day was,
+    // so the code and overtime are derived on punch-out against the member's shift. Previously any
+    // punch set "P" outright, which paid a full day for a ten-minute appearance.
+    a.setCode("P");
+    applyShiftDerivation(a);
 
     AttendanceEntity saved = attendanceRepository.save(a);
     return toResponse(saved, resolveNames(List.of(saved)));
@@ -121,12 +138,23 @@ public class AttendanceService {
       fresh.setDate(date);
       return fresh;
     });
-    if (r.code() != null) a.setCode(r.code());
+    boolean explicitCode = r.code() != null && !r.code().isBlank();
+    if (explicitCode) a.setCode(r.code());
     if (r.inTime() != null) a.setInTime(r.inTime().isBlank() ? null : r.inTime());
     if (r.outTime() != null) a.setOutTime(r.outTime().isBlank() ? null : r.outTime());
+
+    // Times drive the derivation; an explicit code from an admin overrides it (they may know the
+    // member was on site without a clean punch). Overtime is derived unless typed in directly.
+    boolean derived = applyShiftDerivation(a);
+    if (explicitCode) a.setCode(r.code());
     if (r.overtimeHours() != null) a.setOvertimeHours(r.overtimeHours());
+    else if (!derived && (r.inTime() != null || r.outTime() != null)) a.setOvertimeHours(BigDecimal.ZERO);
     if (r.fineHours() != null) a.setFineHours(r.fineHours());
+    // A day's labour can only be booked to a site the editor can reach — otherwise cost lands on
+    // a project they can't open.
+    projectScope.assertCanWrite(r.projectId());
     if (r.projectId() != null) a.setProjectId(r.projectId());
+    RequestProjectContext.set(a.getProjectId());
     AttendanceEntity saved = attendanceRepository.save(a);
     return toResponse(saved, resolveNames(List.of(saved)));
   }
@@ -145,11 +173,38 @@ public class AttendanceService {
         .map(a -> toResponse(a, resolveNames(List.of(a))))
         .orElse(new AttendanceResponse(
             null, userId, resolveNames(List.of()).getOrDefault(userId, ""), today.toString(), "NM",
-            null, null, BigDecimal.ZERO, BigDecimal.ZERO, null,
+            null, null, BigDecimal.ZERO, BigDecimal.ZERO, null, null,
             null, null, null, null, null, null, null, null));
   }
 
   // ---- Helpers ----
+
+  /**
+   * Recompute code / worked hours / overtime for a row from its punch pair and the member's shift.
+   *
+   * @return true when a complete pair was found and the derivation applied
+   */
+  private boolean applyShiftDerivation(AttendanceEntity a) {
+    ShiftRules.Evaluation eval = ShiftRules.evaluate(shiftFor(a.getUserId()), a.getInTime(), a.getOutTime());
+    if (eval == null) {
+      // Incomplete pair — record that explicitly rather than leaving a stale figure behind.
+      a.setWorkedHours(null);
+      return false;
+    }
+    a.setCode(eval.code());
+    a.setWorkedHours(eval.workedHours());
+    a.setOvertimeHours(eval.overtimeHours());
+    return true;
+  }
+
+  /** The shift assigned to a member, or null when they have no payroll profile yet. */
+  private ShiftEntity shiftFor(Long userId) {
+    return profileRepository
+        .findByUserId(userId)
+        .map(PayrollProfileEntity::getShiftId)
+        .flatMap(id -> id == null ? java.util.Optional.empty() : shiftRepository.findById(id))
+        .orElse(null);
+  }
 
   private Map<Long, String> resolveNames(List<AttendanceEntity> rows) {
     List<Long> ids = rows.stream().map(AttendanceEntity::getUserId).distinct().toList();
@@ -165,6 +220,7 @@ public class AttendanceService {
         a.getDate().toString(), a.getCode(),
         a.getInTime(), a.getOutTime(),
         a.getOvertimeHours(), a.getFineHours(),
+        a.getWorkedHours(),
         a.getProjectId(),
         a.getPunchInLat(), a.getPunchInLng(),
         a.getPunchOutLat(), a.getPunchOutLng(),

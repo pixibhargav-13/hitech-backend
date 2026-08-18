@@ -20,7 +20,7 @@ public class ProjectEntity extends BaseEntity {
 
   @Column(nullable = false, length = 200)
   private String name;
-
+  
   @Column(length = 200)
   private String category;
 

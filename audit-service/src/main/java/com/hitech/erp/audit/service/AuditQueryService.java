@@ -31,11 +31,20 @@ public class AuditQueryService {
 
   @Transactional(readOnly = true)
   public AuditLogPageResponse getLogs(
-      int page, int size, Long actorUserId, String action, String entityType, String from, String to, String q) {
+      int page,
+      int size,
+      Long actorUserId,
+      String action,
+      String entityType,
+      String from,
+      String to,
+      String q,
+      Long projectId) {
 
     Specification<AuditLogEntity> spec =
         (root, query, cb) -> {
           List<Predicate> p = new ArrayList<>();
+          if (projectId != null) p.add(cb.equal(root.get("projectId"), projectId));
           if (actorUserId != null) p.add(cb.equal(root.get("actorUserId"), actorUserId));
           if (StringUtils.hasText(action)) p.add(cb.equal(root.get("action"), parseAction(action)));
           if (StringUtils.hasText(entityType)) p.add(cb.equal(root.get("entityType"), entityType));

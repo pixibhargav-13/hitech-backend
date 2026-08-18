@@ -44,6 +44,13 @@ public class AttendanceEntity extends BaseEntity {
   @Column(name = "fine_hours", nullable = false, precision = 5, scale = 2)
   private BigDecimal fineHours = BigDecimal.ZERO;
 
+  /**
+   * Hours the punch pair came to, derived against the member's shift. Null means the pair is
+   * incomplete (punched in, never out) — see {@link com.hitech.erp.payroll.service.ShiftRules}.
+   */
+  @Column(name = "worked_hours", precision = 5, scale = 2)
+  private BigDecimal workedHours;
+
   @Column(name = "project_id")
   private Long projectId;
 

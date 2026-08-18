@@ -15,6 +15,7 @@ import com.hitech.erp.task.dto.TaskDtos.AttachmentInput;
 import com.hitech.erp.task.dto.TaskDtos.BulkDeleteRequest;
 import com.hitech.erp.task.dto.TaskDtos.BulkPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.CommentInput;
+import com.hitech.erp.task.dto.TaskDtos.ProjectWorkload;
 import com.hitech.erp.task.dto.TaskDtos.SubtaskInput;
 import com.hitech.erp.task.dto.TaskDtos.TaskPatchRequest;
 import com.hitech.erp.task.dto.TaskDtos.TaskResponse;
@@ -127,6 +128,54 @@ public class TaskService {
     Long pid = t.getProjectId();
     if (pid == null) return true;
     return myProjects.contains(pid);
+  }
+
+  /**
+   * Task counts for one project — the Dashboard's workload tile.
+   *
+   * <p>Unlike {@link #list}, this deliberately counts <em>every</em> task on the project rather
+   * than only the ones the caller is involved in: a project's health is the whole project's, and
+   * the caller has already been checked for access to the project itself. No task content is
+   * exposed, only totals.
+   */
+  @Transactional(readOnly = true)
+  public ProjectWorkload projectWorkload(Long projectId) {
+    List<TaskEntity> tasks = taskRepository.findByProjectIdAndDraftFalse(projectId);
+    LocalDate today = LocalDate.now();
+    LocalDate weekEnd = today.plusDays(7);
+
+    long completed = 0;
+    long inProgress = 0;
+    long overdue = 0;
+    long dueThisWeek = 0;
+    long awaiting = 0;
+
+    for (TaskEntity t : tasks) {
+      boolean done = t.getStatus() == TaskStatus.COMPLETED;
+      if (done) completed++;
+      if (t.getStatus() == TaskStatus.IN_PROGRESS) inProgress++;
+      if (t.getStatus() == TaskStatus.AWAITING_APPROVAL) awaiting++;
+
+      LocalDate due = parseDueDate(t.getDueDate());
+      if (due == null || done) continue; // a finished task is never late
+      if (due.isBefore(today)) overdue++;
+      else if (!due.isAfter(weekEnd)) dueThisWeek++;
+    }
+
+    long total = tasks.size();
+    int percent = total == 0 ? 0 : (int) Math.round(completed * 100.0 / total);
+    return new ProjectWorkload(
+        total, total - completed, inProgress, completed, overdue, dueThisWeek, awaiting, percent);
+  }
+
+  /** Due dates are free-text on the entity; anything unparseable simply isn't a deadline. */
+  private static LocalDate parseDueDate(String raw) {
+    if (raw == null || raw.isBlank()) return null;
+    try {
+      return LocalDate.parse(raw.trim().substring(0, Math.min(10, raw.trim().length())));
+    } catch (RuntimeException ex) {
+      return null;
+    }
   }
 
   /** Is the user the assignee, a follower, or the creator of this task? */

@@ -36,8 +36,9 @@ public class TenderService {
   private final TenderRepository repository;
 
   @Transactional(readOnly = true)
-  public TenderPageResponse getTenders(int page, int size, String stage, String source, String q) {
-    Specification<TenderEntity> spec = buildSpec(stage, source, q);
+  public TenderPageResponse getTenders(
+      int page, int size, String stage, String source, String q, Long projectId) {
+    Specification<TenderEntity> spec = buildSpec(stage, source, q, projectId);
     Page<TenderEntity> result =
         repository.findAll(spec, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
     return new TenderPageResponse(
@@ -117,15 +118,28 @@ public class TenderService {
     return new TenderSummary(all.size(), byStage, blocked, recoverable);
   }
 
+  /**
+   * The tenders a project came from — the Project workspace's Tender tab. Closes the handoff the
+   * pipeline already implies: winning a bid produces a project, but until now the finished project
+   * had no way back to the bid that created it (EMD, contract value, submission dates).
+   */
+  @Transactional(readOnly = true)
+  public List<TenderResponse> byProject(Long projectId) {
+    return repository.findByProjectIdOrderByIdDesc(projectId).stream().map(this::toResponse).toList();
+  }
+
   // ---------------- internals ----------------
 
   private TenderEntity require(Long id) {
     return repository.findById(id).orElseThrow(() -> new EntityNotFoundException("Tender not found: " + id));
   }
 
-  private Specification<TenderEntity> buildSpec(String stage, String source, String q) {
+  private Specification<TenderEntity> buildSpec(String stage, String source, String q, Long projectId) {
     return (root, query, cb) -> {
       List<Predicate> predicates = new ArrayList<>();
+      if (projectId != null) {
+        predicates.add(cb.equal(root.get("projectId"), projectId));
+      }
       if (StringUtils.hasText(stage)) {
         predicates.add(cb.equal(root.get("stage"), parseStage(stage)));
       }

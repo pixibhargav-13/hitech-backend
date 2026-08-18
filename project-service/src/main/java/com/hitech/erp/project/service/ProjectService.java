@@ -84,9 +84,12 @@ public class ProjectService {
     if (r.getOrientation() != null) p.setOrientation(r.getOrientation());
     if (r.getDimension() != null) p.setDimension(r.getDimension());
     if (r.getScopeOfWork() != null) p.setScopeOfWork(r.getScopeOfWork());
-    if (r.getInAmount() != null) p.setInAmount(r.getInAmount());
-    if (r.getOutAmount() != null) p.setOutAmount(r.getOutAmount());
-    if (r.getTodoCount() != null) p.setTodoCount(r.getTodoCount());
+
+    // inAmount / outAmount / todoCount are deliberately NOT applied any more. They used to be
+    // free-text fields on the settings modal, which meant the project dashboard could never
+    // disagree with whatever someone last typed. They are now derived from the documents and tasks
+    // actually filed against the project — see GET /api/v1/projects/{id}/summary. The columns
+    // survive only as a cache for the projects list; the request fields are ignored.
 
     return mapper.toResponse(projectRepository.save(p));
   }

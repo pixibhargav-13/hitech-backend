@@ -93,4 +93,19 @@ public final class TaskDtos {
       @NotBlank String name, String sizeLabel, String contentType, String dataUrl) {}
 
   public record MembersUpdateRequest(@NotNull List<Long> userIds) {}
+
+  /**
+   * One project's task load, for the Project workspace Dashboard. Replaces the hand-typed
+   * {@code projects.todo_count} column, which only ever showed whatever someone last saved.
+   */
+  public record ProjectWorkload(
+      long total,
+      long open,
+      long inProgress,
+      long completed,
+      long overdue,
+      long dueThisWeek,
+      long awaitingApproval,
+      /** Completed ÷ total as a percentage — the derived counterpart to the manual progress field. */
+      int completionPercent) {}
 }

@@ -74,8 +74,14 @@ public class PayrollController {
       "hasAnyAuthority('PAYROLL:CREATE','PAYROLL:EDIT','PAYROLL:DELETE','PAYROLL:APPROVE')";
 
   private static Long currentUserId() {
+    AuthenticatedUser u = currentUser();
+    return u == null ? null : u.id();
+  }
+
+  /** The full principal — the approval chain needs the caller's role, not just their id. */
+  private static AuthenticatedUser currentUser() {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-    return (auth != null && auth.getPrincipal() instanceof AuthenticatedUser u) ? u.id() : null;
+    return (auth != null && auth.getPrincipal() instanceof AuthenticatedUser u) ? u : null;
   }
 
   /** True when the signed-in user holds any Payroll manage authority (mirrors {@link #MANAGE}). */
@@ -317,33 +323,51 @@ public class PayrollController {
     return ResponseEntity.ok(leaveService.getForMember(userId));
   }
 
-  /** All pending requests — for the approver queue. */
+  /** All pending requests — kept for any caller that still wants only the queue. */
   @GetMapping("/leave/pending")
   @PreAuthorize("hasAuthority('PAYROLL:APPROVE')")
   public ResponseEntity<List<LeaveRequestResponse>> pending() {
     return ResponseEntity.ok(leaveService.getPending());
   }
 
+  /**
+   * Pending and decided requests in one list, each carrying its approval chain and whether the
+   * caller can act on it. Backs the unified Leave screen.
+   */
+  @GetMapping("/leave/all")
+  @PreAuthorize("hasAuthority('PAYROLL:APPROVE')")
+  public ResponseEntity<List<LeaveRequestResponse>> allLeave() {
+    return ResponseEntity.ok(leaveService.getAllForApprover(currentUser()));
+  }
+
   /** Member applies for leave — user id inferred from JWT server-side. */
   @PostMapping("/leave/apply")
   @PreAuthorize("hasAuthority('PAYROLL:VIEW')")
   public ResponseEntity<LeaveRequestResponse> applyLeave(@Valid @RequestBody LeaveApplyRequest r) {
-    return ResponseEntity.ok(leaveService.apply(currentUserId(), r));
+    return ResponseEntity.ok(leaveService.apply(currentUser(), r));
   }
 
-  /** Approve or reject a pending request. */
+  /**
+   * Approve or reject a pending request.
+   *
+   * <p>Gated on PAYROLL:VIEW rather than PAYROLL:APPROVE on purpose. Once leave runs on an approval
+   * chain, the people who must sign are whoever the chain names — typically a Project Manager, who
+   * has no business holding blanket payroll-approve rights over salaries and runs. The real gate is
+   * {@code ApprovalService.canAct}: it rejects anyone the request isn't currently waiting on. With
+   * no chain published, the service still requires PAYROLL:APPROVE, so nothing is loosened.
+   */
   @PostMapping("/leave/{id}/decide")
-  @PreAuthorize("hasAuthority('PAYROLL:APPROVE')")
+  @PreAuthorize("hasAuthority('PAYROLL:VIEW')")
   public ResponseEntity<LeaveRequestResponse> decideLeave(
       @PathVariable("id") Long id, @Valid @RequestBody LeaveDecisionRequest r) {
-    return ResponseEntity.ok(leaveService.decide(id, currentUserId(), r));
+    return ResponseEntity.ok(leaveService.decide(id, currentUser(), r));
   }
 
   /** Member cancels their own pending request. */
   @PostMapping("/leave/{id}/cancel")
   @PreAuthorize("hasAuthority('PAYROLL:VIEW')")
   public ResponseEntity<LeaveRequestResponse> cancelLeave(@PathVariable("id") Long id) {
-    return ResponseEntity.ok(leaveService.cancel(id, currentUserId()));
+    return ResponseEntity.ok(leaveService.cancel(id, currentUser()));
   }
 
   // ---- Loans ----

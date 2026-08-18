@@ -10,6 +10,9 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequestEntity
 
   List<LeaveRequestEntity> findByStatusOrderByCreatedAtDesc(String status);
 
+  /** Pending and decided together — the unified approvals screen. */
+  List<LeaveRequestEntity> findAllByOrderByCreatedAtDesc();
+
   List<LeaveRequestEntity> findByUserIdAndStatusAndFromDateLessThanEqualAndToDateGreaterThanEqual(
       Long userId, String status, LocalDate a, LocalDate b);
 }

@@ -1,5 +1,9 @@
 package com.hitech.erp.payroll.service;
 
+import com.hitech.erp.approval.db.ApprovalEntities.Status;
+import com.hitech.erp.approval.db.ApprovalEntityType;
+import com.hitech.erp.approval.dto.ApprovalDtos.ApprovalStateResponse;
+import com.hitech.erp.approval.service.ApprovalService;
 import com.hitech.erp.common.exception.EntityDeletionNotAllowedException;
 import com.hitech.erp.common.exception.EntityNotFoundException;
 import com.hitech.erp.payroll.db.AttendanceEntity;
@@ -17,6 +21,7 @@ import com.hitech.erp.payroll.dto.PayrollDtos.LeaveDecisionRequest;
 import com.hitech.erp.payroll.dto.PayrollDtos.LeaveRequestResponse;
 import com.hitech.erp.usermanagement.db.AppUserEntity;
 import com.hitech.erp.usermanagement.db.AppUserRepository;
+import com.hitech.erp.usermanagement.security.AuthenticatedUser;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -44,19 +49,45 @@ public class LeaveService {
   private final LeavePolicyRepository leavePolicyRepository;
   private final AttendanceRepository attendanceRepository;
   private final AppUserRepository userRepository;
+  private final ApprovalService approvalService;
 
   // ---- Reads ----
 
   @Transactional(readOnly = true)
   public List<LeaveRequestResponse> getForMember(Long userId) {
     List<LeaveRequestEntity> rows = leaveRepository.findByUserIdOrderByCreatedAtDesc(userId);
-    return rows.stream().map(this::toResponse).toList();
+    return withApproval(rows, null);
   }
 
   @Transactional(readOnly = true)
   public List<LeaveRequestResponse> getPending() {
     List<LeaveRequestEntity> rows = leaveRepository.findByStatusOrderByCreatedAtDesc("PENDING");
-    return rows.stream().map(this::toResponse).toList();
+    return withApproval(rows, null);
+  }
+
+  /**
+   * Every leave request a manager should see — pending and decided together.
+   *
+   * <p>The old screen split "approval queue" and "past requests" into separate pages, which meant
+   * you couldn't see a request's history next to the decision you were about to make. One list,
+   * filtered client-side, with each row carrying its own chain state and whether the caller can act.
+   */
+  @Transactional(readOnly = true)
+  public List<LeaveRequestResponse> getAllForApprover(AuthenticatedUser actor) {
+    return withApproval(leaveRepository.findAllByOrderByCreatedAtDesc(), actor);
+  }
+
+  /**
+   * Attaches chain state to a page of rows in one query rather than one per row, and computes
+   * {@code canActNow} per row so the UI never has to guess whose turn it is.
+   */
+  private List<LeaveRequestResponse> withApproval(List<LeaveRequestEntity> rows, AuthenticatedUser actor) {
+    if (rows.isEmpty()) return List.of();
+    Map<Long, ApprovalStateResponse> states = approvalService.statesFor(
+        ApprovalEntityType.LEAVE_APPLICATION,
+        rows.stream().map(LeaveRequestEntity::getId).toList(),
+        actor);
+    return rows.stream().map(e -> toResponse(e, states.get(e.getId()))).toList();
   }
 
   /** How many days of each leave type a member has used vs their assigned Leave Policy's grant. */
@@ -93,7 +124,8 @@ public class LeaveService {
   // ---- Writes ----
 
   @Transactional
-  public LeaveRequestResponse apply(Long userId, LeaveApplyRequest r) {
+  public LeaveRequestResponse apply(AuthenticatedUser requester, LeaveApplyRequest r) {
+    Long userId = requester.id();
     LocalDate from = LocalDate.parse(r.fromDate());
     LocalDate to = LocalDate.parse(r.toDate());
     if (to.isBefore(from)) {
@@ -110,11 +142,24 @@ public class LeaveService {
     e.setReason(r.reason() == null || r.reason().isBlank() ? null : r.reason().trim());
     e.setStatus("PENDING");
 
-    return toResponse(leaveRepository.save(e));
+    LeaveRequestEntity saved = leaveRepository.save(e);
+    // Raise the approval chain if one is published for leave. When none is, submit() returns empty
+    // and the request behaves exactly as it did before — a single manager decision closes it.
+    approvalService.submit(ApprovalEntityType.LEAVE_APPLICATION, saved.getId(), requester);
+    // Return the chain with the response — the applicant should see who it went to, not a bare
+    // "PENDING" that tells them nothing about where their request now sits.
+    return toResponse(saved, approvalService.state(ApprovalEntityType.LEAVE_APPLICATION, saved.getId(), requester));
   }
 
+  /**
+   * Record one decision on a leave request.
+   *
+   * <p>With a published chain this is a <em>rung</em>, not a verdict: the leave row only moves to
+   * APPROVED once the last level has signed off. A rejection at any level ends it immediately. The
+   * approval framework enforces who may act and writes the audit trail.
+   */
   @Transactional
-  public LeaveRequestResponse decide(Long requestId, Long approverId, LeaveDecisionRequest r) {
+  public LeaveRequestResponse decide(Long requestId, AuthenticatedUser actor, LeaveDecisionRequest r) {
     LeaveRequestEntity e = leaveRepository.findById(requestId)
         .orElseThrow(() -> new EntityNotFoundException("Leave request not found: " + requestId));
     if (!"PENDING".equals(e.getStatus())) {
@@ -122,10 +167,36 @@ public class LeaveService {
     }
 
     boolean approve = "APPROVE".equalsIgnoreCase(r.action());
-    e.setStatus(approve ? "APPROVED" : "REJECTED");
-    e.setApproverId(approverId);
-    e.setApprovedAt(LocalDateTime.now());
-    e.setDecisionNote(r.note() == null || r.note().isBlank() ? null : r.note().trim());
+    String note = r.note() == null || r.note().isBlank() ? null : r.note().trim();
+
+    ApprovalStateResponse chain = approvalService.state(ApprovalEntityType.LEAVE_APPLICATION, requestId, actor);
+    if (chain != null) {
+      Status outcome = approvalService.decide(
+          ApprovalEntityType.LEAVE_APPLICATION, requestId, actor, approve, note);
+      // Always stamp who acted last, so the list still shows a decision-maker mid-chain.
+      e.setApproverId(actor.id());
+      e.setApprovedAt(LocalDateTime.now());
+      e.setDecisionNote(note);
+      if (outcome == Status.PENDING) {
+        // More levels to go — the leave itself stays pending, but hand back the advanced ladder.
+        return toResponse(
+            leaveRepository.save(e),
+            approvalService.state(ApprovalEntityType.LEAVE_APPLICATION, requestId, actor));
+      }
+      e.setStatus(outcome == Status.APPROVED ? "APPROVED" : "REJECTED");
+      approve = outcome == Status.APPROVED;
+    } else {
+      // No chain for leave: the old single-decision behaviour, which still needs the blanket
+      // payroll-approve right since nobody has been named as an approver for this request.
+      if (actor.permissions() == null || !actor.permissions().contains("PAYROLL:APPROVE")) {
+        throw new org.springframework.security.access.AccessDeniedException(
+            "You don't have permission to decide leave requests.");
+      }
+      e.setStatus(approve ? "APPROVED" : "REJECTED");
+      e.setApproverId(actor.id());
+      e.setApprovedAt(LocalDateTime.now());
+      e.setDecisionNote(note);
+    }
 
     // On approve, write PL attendance rows for the whole range (only where none exists yet).
     if (approve) {
@@ -145,12 +216,15 @@ public class LeaveService {
       }
     }
 
-    return toResponse(leaveRepository.save(e));
+    return toResponse(
+        leaveRepository.save(e),
+        approvalService.state(ApprovalEntityType.LEAVE_APPLICATION, requestId, actor));
   }
 
   /** Member cancels their own pending request. */
   @Transactional
-  public LeaveRequestResponse cancel(Long requestId, Long userId) {
+  public LeaveRequestResponse cancel(Long requestId, AuthenticatedUser actor) {
+    Long userId = actor.id();
     LeaveRequestEntity e = leaveRepository.findById(requestId)
         .orElseThrow(() -> new EntityNotFoundException("Leave request not found: " + requestId));
     if (!e.getUserId().equals(userId)) {
@@ -160,12 +234,20 @@ public class LeaveService {
       throw new EntityDeletionNotAllowedException("Only pending requests can be cancelled");
     }
     e.setStatus("CANCELLED");
-    return toResponse(leaveRepository.save(e));
+    // Withdraw the chain too, so it stops appearing in anyone's approval queue.
+    approvalService.cancel(ApprovalEntityType.LEAVE_APPLICATION, requestId, actor);
+    return toResponse(
+        leaveRepository.save(e),
+        approvalService.state(ApprovalEntityType.LEAVE_APPLICATION, requestId, actor));
   }
 
   // ---- Helpers ----
 
   private LeaveRequestResponse toResponse(LeaveRequestEntity e) {
+    return toResponse(e, null);
+  }
+
+  private LeaveRequestResponse toResponse(LeaveRequestEntity e, ApprovalStateResponse approval) {
     Map<Long, String> names = new HashMap<>();
     List<Long> ids = new ArrayList<>();
     ids.add(e.getUserId());
@@ -179,6 +261,8 @@ public class LeaveService {
         e.getApproverId(), e.getApproverId() != null ? names.getOrDefault(e.getApproverId(), "") : null,
         e.getApprovedAt() != null ? e.getApprovedAt().toString() : null,
         e.getDecisionNote(),
-        e.getCreatedAt() != null ? e.getCreatedAt().toString() : null);
+        e.getCreatedAt() != null ? e.getCreatedAt().toString() : null,
+        approval,
+        approval != null && approval.canActNow());
   }
 }

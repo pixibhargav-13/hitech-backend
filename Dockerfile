@@ -30,6 +30,10 @@ RUN mvn -q -B -pl web-app -am clean package -DskipTests
 # ---- Runtime stage ----
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+# The app is India-only and every timestamp is a zone-less LocalDateTime, so the container clock
+# must be IST — otherwise the same code writes UTC wall-clock times here and IST ones on a dev box.
+# HitechErpApplication pins the JVM zone as well; this keeps container logs and the OS in step.
+ENV TZ=Asia/Kolkata
 COPY --from=build /app/web-app/target/web-app-0.0.1-SNAPSHOT.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

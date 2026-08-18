@@ -56,15 +56,30 @@ public class UserService {
 
   @Transactional
   public UserResponse createUser(UserCreateRequest request) {
-    if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
-      throw new DuplicateValueException("A user with email '" + request.getEmail() + "' already exists");
+    // A member who never signs in needs no credentials; one who does must have both. Validating
+    // here rather than in the contract keeps a single rule for create and update.
+    boolean loginUser = !Boolean.FALSE.equals(request.getIsLoginUser());
+    String email = emptyToNull(request.getEmail());
+
+    if (loginUser) {
+      if (email == null) {
+        throw new IllegalArgumentException("An email address is required for members who sign in.");
+      }
+      if (request.getPassword() == null || request.getPassword().isBlank()) {
+        throw new IllegalArgumentException("A password is required for members who sign in.");
+      }
+    }
+    if (email != null && userRepository.existsByEmailIgnoreCase(email)) {
+      throw new DuplicateValueException("A user with email '" + email + "' already exists");
     }
 
     AppUserEntity user = new AppUserEntity();
-    user.setEmail(request.getEmail());
+    user.setLoginUser(loginUser);
+    user.setEmail(email);
     user.setFullName(request.getFullName());
     user.setPhoneNumber(request.getPhoneNumber());
-    user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+    user.setPasswordHash(
+        loginUser && request.getPassword() != null ? passwordEncoder.encode(request.getPassword()) : null);
     user.setActive(true);
     user.setRole(requireRole(request.getRoleId()));
     user.setDepartment(findDepartment(request.getDepartmentId()));
@@ -99,6 +114,33 @@ public class UserService {
     }
     if (request.getOnPayroll() != null) {
       user.setOnPayroll(request.getOnPayroll());
+    }
+    // Turning sign-in off strips the credentials rather than leaving an orphaned hash behind;
+    // turning it on requires an address to sign in with.
+    if (request.getIsLoginUser() != null && request.getIsLoginUser() != user.isLoginUser()) {
+      if (request.getIsLoginUser()) {
+        String email = emptyToNull(request.getEmail() != null ? request.getEmail() : user.getEmail());
+        if (email == null) {
+          throw new IllegalArgumentException("Set an email address before enabling sign-in for this member.");
+        }
+        user.setEmail(email);
+        user.setLoginUser(true);
+      } else {
+        user.setLoginUser(false);
+        user.setPasswordHash(null);
+      }
+    }
+    if (request.getEmail() != null) {
+      String email = emptyToNull(request.getEmail());
+      if (email == null && user.isLoginUser()) {
+        throw new IllegalArgumentException("A member who signs in must keep an email address.");
+      }
+      if (email != null
+          && !email.equalsIgnoreCase(user.getEmail())
+          && userRepository.existsByEmailIgnoreCase(email)) {
+        throw new DuplicateValueException("A user with email '" + email + "' already exists");
+      }
+      user.setEmail(email);
     }
     // Photo: a null field means "unchanged"; an empty string is an explicit "remove the photo".
     if (request.getPhotoUrl() != null) {
@@ -139,6 +181,9 @@ public class UserService {
   @Transactional
   public void updateUserPassword(Long id, String newPassword) {
     AppUserEntity user = requireUser(id);
+    if (!user.isLoginUser()) {
+      throw new IllegalArgumentException("This member doesn't sign in — enable sign-in before setting a password.");
+    }
     user.setPasswordHash(passwordEncoder.encode(newPassword));
     userRepository.save(user);
   }

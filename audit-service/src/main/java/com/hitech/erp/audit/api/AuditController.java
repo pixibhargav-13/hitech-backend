@@ -27,7 +27,8 @@ public class AuditController implements AuditApi {
       Optional<String> entityType,
       Optional<String> from,
       Optional<String> to,
-      Optional<String> q) {
+      Optional<String> q,
+      Optional<Long> projectId) {
     return ResponseEntity.ok(
         auditQueryService.getLogs(
             page.orElse(0),
@@ -37,7 +38,8 @@ public class AuditController implements AuditApi {
             entityType.orElse(null),
             from.orElse(null),
             to.orElse(null),
-            q.orElse(null)));
+            q.orElse(null),
+            projectId.orElse(null)));
   }
 
   @Override

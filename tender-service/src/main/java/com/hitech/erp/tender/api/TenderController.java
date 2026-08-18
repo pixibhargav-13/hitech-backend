@@ -35,8 +35,9 @@ public class TenderController {
       @RequestParam(name = "size", required = false, defaultValue = "50") int size,
       @RequestParam(name = "stage", required = false) String stage,
       @RequestParam(name = "source", required = false) String source,
-      @RequestParam(name = "q", required = false) String q) {
-    return ResponseEntity.ok(service.getTenders(page, size, stage, source, q));
+      @RequestParam(name = "q", required = false) String q,
+      @RequestParam(name = "projectId", required = false) Long projectId) {
+    return ResponseEntity.ok(service.getTenders(page, size, stage, source, q, projectId));
   }
 
   @GetMapping("/summary")

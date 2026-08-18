@@ -38,6 +38,13 @@ public class AuditLogEntity extends BaseEntity {
   @Column(name = "entity_id", length = 60)
   private String entityId;
 
+  /**
+   * The project this action concerned, when it concerned one. Lets the Project workspace show a
+   * real per-project timeline instead of sending users to the global audit log to hunt.
+   */
+  @Column(name = "project_id")
+  private Long projectId;
+
   @Column(length = 500)
   private String summary;
 

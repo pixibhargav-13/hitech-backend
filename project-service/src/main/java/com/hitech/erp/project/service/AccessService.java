@@ -1,6 +1,7 @@
 package com.hitech.erp.project.service;
 
 import com.hitech.erp.project.db.ProjectMemberRepository;
+import com.hitech.erp.usermanagement.access.ProjectAccessPort;
 import com.hitech.erp.usermanagement.db.AppUserRepository;
 import com.hitech.erp.usermanagement.db.RoleRepository;
 import com.hitech.erp.usermanagement.security.AuthenticatedUser;
@@ -22,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
-public class AccessService {
+public class AccessService implements ProjectAccessPort {
 
   public static final String SUPER_ADMIN = "Super Admin";
 
@@ -42,8 +43,9 @@ public class AccessService {
    * the full read-only catalogue, mostly so the task drawer can offer any project to tag on an
    * office task for reference. Site members stay strictly membership-scoped.
    */
+  @Override
   @Transactional(readOnly = true)
-  public boolean isProjectListUnscoped(AuthenticatedUser user) {
+  public boolean seesAllProjects(AuthenticatedUser user) {
     if (user == null) return false;
     if (seesEverything(user)) return true;
     return userRepository
@@ -52,7 +54,17 @@ public class AccessService {
         .orElse(false);
   }
 
+  /**
+   * Same question as {@link #seesAllProjects}, kept under its original name for the projects list.
+   * Vyapar/Payroll/Tender reach the identical rule through {@code ProjectAccessPort}.
+   */
+  @Transactional(readOnly = true)
+  public boolean isProjectListUnscoped(AuthenticatedUser user) {
+    return seesAllProjects(user);
+  }
+
   /** Project ids the user may access. Empty list is meaningful (= no projects) for non-admins. */
+  @Override
   @Transactional(readOnly = true)
   public List<Long> accessibleProjectIds(AuthenticatedUser user) {
     return memberRepository.findProjectIdsByUserId(user.id());

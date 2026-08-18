@@ -41,6 +41,8 @@ public interface UserManagementMapper {
   // Same Lombok boolean-getter quirk as RoleEntity.isSystem: isActive() introspects as property
   // "active", not "isActive", so it needs an explicit expression mapping too.
   @Mapping(target = "isActive", expression = "java(user.isActive())")
+  // Same quirk again: the entity property is "loginUser", the contract field is "isLoginUser".
+  @Mapping(target = "isLoginUser", expression = "java(user.isLoginUser())")
   // Department is optional, so flatten it defensively rather than letting MapStruct walk a null.
   @Mapping(
       target = "departmentId",

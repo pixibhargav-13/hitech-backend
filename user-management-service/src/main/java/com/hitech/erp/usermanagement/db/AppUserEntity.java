@@ -16,11 +16,24 @@ import lombok.Setter;
 @Table(name = "app_users")
 public class AppUserEntity extends BaseEntity {
 
-  @Column(nullable = false, unique = true, length = 255)
+  /**
+   * Sign-in address. Null for members who don't log in — site labour is on the payroll and needs
+   * attendance, leave and a payslip, but has no reason to ever open the app. Forcing an address on
+   * those records only produced fake ones.
+   */
+  @Column(unique = true, length = 255)
   private String email;
 
-  @Column(name = "password_hash", nullable = false, length = 255)
+  /** Null for non-login members. Required (and validated) whenever {@link #loginUser} is true. */
+  @Column(name = "password_hash", length = 255)
   private String passwordHash;
+
+  /**
+   * Whether this member can sign in. When false the record is a payroll/directory entry only, and
+   * the credential fields are neither required nor shown.
+   */
+  @Column(name = "is_login_user", nullable = false)
+  private boolean loginUser = true;
 
   @Column(name = "full_name", nullable = false, length = 255)
   private String fullName;

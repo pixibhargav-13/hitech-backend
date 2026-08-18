@@ -113,6 +113,8 @@ public final class PayrollDtos {
       String outTime,
       java.math.BigDecimal overtimeHours,
       java.math.BigDecimal fineHours,
+      /** Derived from the punch pair against the shift; null when the member never punched out. */
+      java.math.BigDecimal workedHours,
       Long projectId,
       java.math.BigDecimal punchInLat,
       java.math.BigDecimal punchInLng,
@@ -187,7 +189,11 @@ public final class PayrollDtos {
       String approverName,
       String approvedAt,
       String decisionNote,
-      String createdAt) {}
+      String createdAt,
+      /** Multi-level chain state, or null when this request never went through one. */
+      com.hitech.erp.approval.dto.ApprovalDtos.ApprovalStateResponse approval,
+      /** True when the signed-in caller can decide this request right now. Drives the action buttons. */
+      boolean canActNow) {}
 
   /** Member applies for leave — user id inferred from JWT server-side. */
   public record LeaveApplyRequest(
@@ -316,4 +322,55 @@ public final class PayrollDtos {
       int personCount,
       String createdAt,
       String paidAt) {}
+
+  // ---- Project rollups (feed the Project workspace) ----
+
+  /**
+   * One project's labour position over a date window. Man-days and cost come from attendance rows
+   * tagged with the project, so a member who splits a month between two sites is counted on each
+   * for the days they actually punched there.
+   */
+  public record ProjectManpower(
+      /** Members assigned to the project, whether or not they punched. */
+      int assignedMembers,
+      /** Distinct members who actually punched on this project in the window. */
+      int activeMembers,
+      /** Members present on the most recent day in the window. */
+      int presentToday,
+      /** Payable days worked on this project (half days count 0.5). */
+      BigDecimal manDays,
+      BigDecimal overtimeHours,
+      /** Man-days × the member's daily rate. Zero for members with no rate on file. */
+      BigDecimal labourCost,
+      /** True when at least one contributing member has no payroll profile, so cost understates. */
+      boolean costIncomplete,
+      List<ProjectManpowerDay> trend) {}
+
+  /** One day's headcount on a project — the Dashboard's attendance chart. */
+  public record ProjectManpowerDay(String date, int workers, BigDecimal manDays) {}
+
+  /**
+   * One member's contribution to a project over the window. Money fields are null unless the caller
+   * holds {@code PAYROLL:VIEW} — a site supervisor sees who worked and how much, not what they earn.
+   */
+  public record ProjectStaffRow(
+      Long userId,
+      String name,
+      String email,
+      String phone,
+      String staffType,
+      String department,
+      String roleName,
+      String photoUrl,
+      String designation,
+      String category,
+      /** DAILY / HOURLY / PIECE for work-basis members; null for salaried. */
+      String workType,
+      BigDecimal dailyRate,
+      int presentDays,
+      int absentDays,
+      BigDecimal manDays,
+      BigDecimal overtimeHours,
+      BigDecimal labourCost,
+      String lastSeen) {}
 }

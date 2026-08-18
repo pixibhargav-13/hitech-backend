@@ -8,6 +8,8 @@ import com.hitech.erp.payroll.db.LoanEntity;
 import com.hitech.erp.payroll.db.LoanRepository;
 import com.hitech.erp.payroll.db.PayrollProfileEntity;
 import com.hitech.erp.payroll.db.PayrollProfileRepository;
+import com.hitech.erp.payroll.db.ShiftEntity;
+import com.hitech.erp.payroll.db.ShiftRepository;
 import com.hitech.erp.payroll.db.PayrollRunEntity;
 import com.hitech.erp.payroll.db.PayrollRunRepository;
 import com.hitech.erp.payroll.db.PayslipEntity;
@@ -58,6 +60,7 @@ public class PayrollRunService {
   private final LoanRepository loanRepository;
   private final ReimbursementRepository reimbRepository;
   private final AppUserRepository userRepository;
+  private final ShiftRepository shiftRepository;
 
   // ---- Reads ----
 
@@ -137,26 +140,42 @@ public class PayrollRunService {
     for (PayrollProfileEntity p : profiles) {
       // Compute attendance summary for this member
       List<AttendanceEntity> theirs = attByUser.getOrDefault(p.getUserId(), List.of());
-      int present = 0, halfDay = 0, paidLeave = 0, weekOff = 0, absent = 0;
+      ShiftEntity shift = p.getShiftId() == null ? null : shiftRepository.findById(p.getShiftId()).orElse(null);
+
+      int present = 0, halfDay = 0, paidLeave = 0, weekOff = 0, absent = 0, incomplete = 0;
       BigDecimal ot = BigDecimal.ZERO;
       for (AttendanceEntity a : theirs) {
-        switch (a.getCode()) {
-          case "P" -> present++;
-          case "HD" -> halfDay++;
-          case "PL" -> paidLeave++;
-          case "WO" -> weekOff++;
-          case "A" -> absent++;
+        // A day marked Present with no punch-out never had its length established. Paying it in
+        // full rewards forgetting to punch out, so it counts as half and is reported separately.
+        boolean missingPunchOut =
+            "P".equals(a.getCode()) && a.getWorkedHours() == null && a.getInTime() != null && a.getOutTime() == null;
+        if (missingPunchOut) {
+          incomplete++;
+        } else {
+          switch (a.getCode()) {
+            case "P" -> present++;
+            case "HD" -> halfDay++;
+            case "PL" -> paidLeave++;
+            case "WO" -> weekOff++;
+            case "A" -> absent++;
+            default -> { /* NM — not marked */ }
+          }
         }
         ot = ot.add(a.getOvertimeHours() == null ? BigDecimal.ZERO : a.getOvertimeHours());
       }
+      // Overtime converts to days at the member's own shift length, not a hardcoded 8 — an hour
+      // over a 6-hour shift is a sixth of a day, not an eighth.
+      BigDecimal otDayHours = BigDecimal.valueOf(shift == null || shift.getFullDayHours() <= 0 ? 8 : shift.getFullDayHours());
 
       BigDecimal gross;
       BigDecimal payableDays;
       boolean isWork = "WORK_BASIS".equals(p.getCategory());
       if (isWork) {
         // Work-basis is paid only for days actually worked (marked present / half-day) + OT.
-        BigDecimal workDays = new BigDecimal(present).add(new BigDecimal(halfDay).multiply(BigDecimal.valueOf(0.5)));
-        BigDecimal otPortion = ot.divide(BigDecimal.valueOf(8), 4, RoundingMode.HALF_UP);
+        BigDecimal workDays = new BigDecimal(present)
+            .add(new BigDecimal(halfDay).multiply(BigDecimal.valueOf(0.5)))
+            .add(new BigDecimal(incomplete).multiply(ShiftRules.INCOMPLETE_FACTOR));
+        BigDecimal otPortion = ot.divide(otDayHours, 4, RoundingMode.HALF_UP);
         payableDays = workDays;
         gross = p.getWorkRate().multiply(workDays.add(otPortion)).setScale(0, RoundingMode.HALF_UP);
       } else {
@@ -166,6 +185,7 @@ public class PayrollRunService {
         payableDays = new BigDecimal(elapsedDays)
             .subtract(new BigDecimal(absent))
             .subtract(new BigDecimal(halfDay).multiply(BigDecimal.valueOf(0.5)))
+            .subtract(new BigDecimal(incomplete).multiply(ShiftRules.INCOMPLETE_FACTOR))
             .max(BigDecimal.ZERO);
         gross = p.getMonthlyCtc().multiply(payableDays)
             .divide(new BigDecimal(totalDays), 0, RoundingMode.HALF_UP);

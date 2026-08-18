@@ -500,7 +500,7 @@ components:
 
     UserCreateRequest:
       type: object
-      required: [ email, password, fullName, roleId ]
+      required: [ fullName, roleId ]
       properties:
         email:
           type: string
@@ -526,6 +526,13 @@ components:
           type: boolean
           default: false
           description: On payroll — can punch and has a payroll profile.
+        isLoginUser:
+          type: boolean
+          default: true
+          description: >-
+            Whether this member can sign in. False means a payroll/directory entry only, with no
+            credentials. Defaults to true so existing clients that omit it keep creating normal
+            login users.
         photoUrl:
           type: string
           nullable: true
@@ -534,6 +541,11 @@ components:
     UserUpdateRequest:
       type: object
       properties:
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: Sign-in address. Null/empty is only allowed for members who do not sign in.
         fullName:
           type: string
         phoneNumber:
@@ -551,6 +563,9 @@ components:
         onPayroll:
           type: boolean
           description: On payroll — can punch and has a payroll profile.
+        isLoginUser:
+          type: boolean
+          description: Whether this member can sign in. False means a payroll/directory entry only, with no credentials.
         isActive:
           type: boolean
         photoUrl:
@@ -594,6 +609,9 @@ components:
         onPayroll:
           type: boolean
           description: On payroll — can punch and has a payroll profile.
+        isLoginUser:
+          type: boolean
+          description: Whether this member can sign in. False means a payroll/directory entry only, with no credentials.
         photoUrl:
           type: string
           nullable: true

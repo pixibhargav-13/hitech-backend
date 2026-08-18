@@ -25,4 +25,7 @@ public interface TaskRepository extends JpaRepository<TaskEntity, Long> {
       @Param("projectIds") List<Long> projectIds, @Param("userId") Long userId);
 
   long countByProjectId(Long projectId);
+
+  /** Every real task on a project — drafts are private scratch and never count towards workload. */
+  List<TaskEntity> findByProjectIdAndDraftFalse(Long projectId);
 }

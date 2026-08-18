@@ -38,6 +38,7 @@ public class AuditRecorder {
       log.setAction(event.action());
       log.setEntityType(event.entityType());
       log.setEntityId(event.entityId());
+      log.setProjectId(event.projectId());
       log.setSummary(trim(event.summary(), 500));
       log.setHttpMethod(event.httpMethod());
       log.setPath(trim(event.path(), 255));
@@ -63,6 +64,7 @@ public class AuditRecorder {
       AuditAction action,
       String entityType,
       String entityId,
+      Long projectId,
       String summary,
       String httpMethod,
       String path,

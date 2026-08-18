@@ -34,7 +34,12 @@ public class AuthService {
             .findByEmailIgnoreCase(email)
             .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
 
-    if (!user.isActive() || !passwordEncoder.matches(password, user.getPasswordHash())) {
+    // A member flagged as non-login has no password hash at all; reject before touching the
+    // encoder, and give nothing away about which half of the pair was wrong.
+    if (!user.isActive()
+        || !user.isLoginUser()
+        || user.getPasswordHash() == null
+        || !passwordEncoder.matches(password, user.getPasswordHash())) {
       throw new InvalidCredentialsException("Invalid email or password");
     }
 

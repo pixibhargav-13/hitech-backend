@@ -67,6 +67,13 @@ paths:
           schema:
             type: string
           description: "Free text over summary, path and actor"
+        - name: projectId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+          description: "Only actions that concerned this project — the project workspace timeline"
       responses:
         '200':
           description: Audit logs
@@ -119,6 +126,9 @@ components:
           type: string
         entityId:
           type: string
+        projectId:
+          type: integer
+          format: int64
         summary:
           type: string
         httpMethod:
