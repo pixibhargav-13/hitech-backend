@@ -1,6 +1,9 @@
 package com.hitech.erp.vyapar.service;
 
+import com.hitech.erp.common.context.RequestProjectContext;
 import com.hitech.erp.common.exception.EntityNotFoundException;
+import com.hitech.erp.usermanagement.access.ProjectScope;
+import com.hitech.erp.usermanagement.access.ProjectScopeResolver;
 import com.hitech.erp.vyapar.db.InvoiceEntity;
 import com.hitech.erp.vyapar.db.InvoiceLineEntity;
 import com.hitech.erp.vyapar.db.ItemEntity;
@@ -49,6 +52,7 @@ public class VyaparService {
   private final PaymentLinkRepository paymentLinkRepository;
   private final InvoiceHistoryRepository invoiceHistoryRepository;
   private final VyaparSettingsRepository settingsRepository;
+  private final ProjectScopeResolver projectScope;
 
   private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
   /** Documents that represent real money owed/owing (estimates and orders don't). */
@@ -72,13 +76,15 @@ public class VyaparService {
             : partyRepository.findAllByPartyTypeOrderByNameAsc(type.toUpperCase());
     // Parties are global master data — always listed. Only their derived balances follow the
     // selected project scope (via the documents/payments booked against them).
-    Map<Long, BigDecimal> balances = balancesByParty(projectId);
-    return parties.stream().map(p -> toParty(p, balances)).toList();
+    ProjectScope scope = projectScope.resolve(projectId);
+    Map<Long, BigDecimal> balances = balancesByParty(scope);
+    boolean includeOpening = !scope.isSingleProject();
+    return parties.stream().map(p -> toParty(p, balances, includeOpening)).toList();
   }
 
   @Transactional(readOnly = true)
   public PartyResponse getParty(Long id) {
-    return toParty(requireParty(id), balanceOfParty(id, null));
+    return toParty(requireParty(id), balanceOfParty(id, projectScope.resolve(null)));
   }
 
   @Transactional
@@ -86,14 +92,14 @@ public class VyaparService {
     PartyEntity p = new PartyEntity();
     applyParty(p, r);
     PartyEntity saved = partyRepository.save(p);
-    return toParty(saved, balanceOfParty(saved.getId(), null));
+    return toParty(saved, balanceOfParty(saved.getId(), projectScope.resolve(null)));
   }
 
   @Transactional
   public PartyResponse updateParty(Long id, PartyRequest r) {
     PartyEntity p = requireParty(id);
     applyParty(p, r);
-    return toParty(partyRepository.save(p), balanceOfParty(id, null));
+    return toParty(partyRepository.save(p), balanceOfParty(id, projectScope.resolve(null)));
   }
 
   @Transactional
@@ -193,7 +199,7 @@ public class VyaparService {
       applyParty(p, r);
       saved.add(partyRepository.save(p));
     }
-    Map<Long, BigDecimal> balances = balancesByParty(null);
+    Map<Long, BigDecimal> balances = balancesByParty(projectScope.resolve(null));
     return saved.stream().map(p -> toParty(p, balances)).toList();
   }
 
@@ -215,7 +221,18 @@ public class VyaparService {
   }
 
   private PartyResponse toParty(PartyEntity p, Map<Long, BigDecimal> balances) {
+    return toParty(p, balances, true);
+  }
+
+  /**
+   * @param includeOpeningBalance false when the caller narrowed to a single project. An opening
+   *     balance is a company-level carry-forward from before the books started — it belongs to no
+   *     site. Adding it to a project-scoped balance made every party with an opening figure look
+   *     like it owed money on a project it had never traded on.
+   */
+  private PartyResponse toParty(PartyEntity p, Map<Long, BigDecimal> balances, boolean includeOpeningBalance) {
     BigDecimal derived = balances.getOrDefault(p.getId(), BigDecimal.ZERO);
+    BigDecimal opening = includeOpeningBalance ? nz(p.getOpeningBalance()) : BigDecimal.ZERO;
     return new PartyResponse(
         p.getId(),
         p.getName(),
@@ -235,19 +252,19 @@ public class VyaparService {
         p.getField1(), p.getField2(), p.getField3(), p.getField4(),
         p.isActive(),
         p.getBankAccountId(),
-        money(nz(p.getOpeningBalance()).add(derived)));
+        money(opening.add(derived)));
   }
 
   /**
    * Net position per party: sales add to what they owe, purchases subtract, payments settle.
    * Positive = receivable, negative = payable.
    */
-  private Map<Long, BigDecimal> balancesByParty(Long projectId) {
+  private Map<Long, BigDecimal> balancesByParty(ProjectScope scope) {
     Map<Long, BigDecimal> out = new LinkedHashMap<>();
     for (InvoiceEntity inv : invoiceRepository.findAll()) {
       if (inv.getParty() == null || !POSTED.contains(inv.getDocType())) continue;
       if (inv.isCancelled()) continue; // a cancelled document owes nothing
-      if (!inScope(inv.getProjectId(), projectId)) continue;
+      if (!scope.matches(inv.getProjectId())) continue;
       BigDecimal outstanding = nz(inv.getTotal()).subtract(nz(inv.getPaidAmount()));
       BigDecimal signed =
           switch (inv.getDocType()) {
@@ -272,7 +289,7 @@ public class VyaparService {
     }
     for (PaymentEntity pay : paymentRepository.findAll()) {
       if (pay.getParty() == null) continue;
-      if (!inScope(pay.getProjectId(), projectId)) continue;
+      if (!scope.matches(pay.getProjectId())) continue;
       BigDecimal unused = unusedOf(pay, linkedByPayment);
       if (unused.compareTo(BigDecimal.ZERO) == 0) continue;
       // Money in reduces a receivable; money out reduces a payable.
@@ -295,11 +312,11 @@ public class VyaparService {
    * document in the books — O(all documents) to answer a question about one row. This touches only
    * that party's documents, via the indexed party_id lookups.
    */
-  private Map<Long, BigDecimal> balanceOfParty(Long partyId, Long projectId) {
+  private Map<Long, BigDecimal> balanceOfParty(Long partyId, ProjectScope scope) {
     BigDecimal sum = BigDecimal.ZERO;
     for (InvoiceEntity inv : invoiceRepository.findByParty_IdOrderByIdDesc(partyId)) {
       if (!POSTED.contains(inv.getDocType()) || inv.isCancelled()) continue;
-      if (!inScope(inv.getProjectId(), projectId)) continue;
+      if (!scope.matches(inv.getProjectId())) continue;
       BigDecimal outstanding = nz(inv.getTotal()).subtract(nz(inv.getPaidAmount()));
       sum = sum.add(
           switch (inv.getDocType()) {
@@ -312,7 +329,7 @@ public class VyaparService {
     Map<Long, BigDecimal> linkedByPayment =
         linkedAmountsByPayment(payments.stream().map(PaymentEntity::getId).toList());
     for (PaymentEntity pay : payments) {
-      if (!inScope(pay.getProjectId(), projectId)) continue;
+      if (!scope.matches(pay.getProjectId())) continue;
       // Only the unapplied part — see the note in balancesByParty.
       BigDecimal unused = unusedOf(pay, linkedByPayment);
       sum = sum.add("IN".equals(pay.getDirection()) ? unused.negate() : unused);
@@ -500,12 +517,13 @@ public class VyaparService {
 
   @Transactional(readOnly = true)
   public List<InvoiceResponse> getInvoices(String docType, Long projectId) {
+    ProjectScope scope = projectScope.resolve(projectId);
     List<InvoiceEntity> list =
         (docType == null || docType.isBlank())
             ? invoiceRepository.findAllByOrderByIdDesc()
             : invoiceRepository.findAllByDocTypeOrderByIdDesc(docType.toUpperCase());
     return list.stream()
-        .filter(inv -> inScope(inv.getProjectId(), projectId))
+        .filter(inv -> scope.matches(inv.getProjectId()))
         .map(this::toInvoice)
         .toList();
   }
@@ -552,7 +570,13 @@ public class VyaparService {
 
   private void applyInvoice(InvoiceEntity inv, InvoiceRequest r) {
     if (r.bankAccountId() != null) inv.setBankAccountId(r.bankAccountId());
+    // A document may only be filed against a project the author can reach — otherwise money could
+    // be booked into a site the author can't even open.
+    projectScope.assertCanWrite(r.projectId());
     if (r.projectId() != null) inv.setProjectId(r.projectId());
+    // The project id lives in the body, where the audit filter can't see it — stamp it so this
+    // document shows up on the project's timeline.
+    RequestProjectContext.set(inv.getProjectId());
     inv.setParty(r.partyId() == null ? null : requireParty(r.partyId()));
     inv.setInvoiceDate(r.invoiceDate() == null ? LocalDate.now().toString() : r.invoiceDate());
     inv.setDueDate(r.dueDate());
@@ -561,6 +585,10 @@ public class VyaparService {
     inv.setBillingName(r.billingName());
     inv.setBillingAddress(r.billingAddress());
     inv.setNotes(r.notes());
+    inv.setDescription(r.description());
+    inv.setImageDataUrl(r.imageDataUrl());
+    inv.setDocumentName(r.documentName());
+    inv.setDocumentDataUrl(r.documentDataUrl());
     inv.setStateOfSupply(r.stateOfSupply());
     inv.setInvoicePrefix(r.invoicePrefix());
     inv.setTerms(r.terms());
@@ -581,6 +609,10 @@ public class VyaparService {
         line.setQuantity(nz(lr.quantity()).compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ONE : lr.quantity());
         line.setRate(money(lr.rate()));
         line.setTaxPercent(nz(lr.taxPercent()));
+        // The rate still drives the maths; the code records which GST levy it was, so an
+        // intra-state GST@18% and an inter-state IGST@18% stay distinguishable in the returns.
+        line.setTaxCode(lr.taxCode());
+        line.setItcEligibility(lr.itcEligibility());
 
         BigDecimal gross = line.getQuantity().multiply(line.getRate());
         // A percent discount wins if given; otherwise use the flat amount.
@@ -671,7 +703,8 @@ public class VyaparService {
                 l.getId(), l.getItemId(), l.getItemName(), l.getDescription(), l.getUnit(),
                 nz(l.getQuantity()), money(l.getRate()),
                 nz(l.getDiscountPercent()), money(l.getDiscountAmount()),
-                nz(l.getTaxPercent()), money(l.getTaxAmount()), money(l.getAmount())))
+                nz(l.getTaxPercent()), l.getTaxCode(), l.getItcEligibility(),
+                money(l.getTaxAmount()), money(l.getAmount())))
             .toList();
     return new InvoiceResponse(
         inv.getId(), inv.getDocType(), inv.getInvoiceNo(),
@@ -683,7 +716,9 @@ public class VyaparService {
         inv.getPaymentType(), inv.getPaymentReference(), inv.getBillingName(), inv.getBillingAddress(),
         inv.isCash(), inv.getStateOfSupply(), inv.getInvoicePrefix(),
         inv.getTerms(), nz(inv.getDiscountPercent()), money(inv.getRoundOff()),
-        status, inv.isCancelled(), inv.getNotes(), inv.getBankAccountId(), inv.getProjectId(), lines);
+        status, inv.isCancelled(), inv.getNotes(),
+        inv.getDescription(), inv.getImageDataUrl(), inv.getDocumentName(), inv.getDocumentDataUrl(),
+        inv.getBankAccountId(), inv.getProjectId(), lines);
   }
 
   // ================= Document actions (Vyapar's row menu) =================
@@ -740,6 +775,10 @@ public class VyaparService {
     copy.setStateOfSupply(src.getStateOfSupply());
     copy.setTerms(src.getTerms());
     copy.setNotes(src.getNotes());
+    // The description travels with the copy, but the image and the attached file do not: those are
+    // the evidence for the original bill (a supplier's PDF, a photo of the delivery), and silently
+    // re-filing them against a second document would misrepresent what was actually received.
+    copy.setDescription(src.getDescription());
     copy.setBankAccountId(src.getBankAccountId());
     copy.setProjectId(src.getProjectId());
     copy.setCreatedBy(userId);
@@ -806,6 +845,8 @@ public class VyaparService {
     c.setDiscountPercent(l.getDiscountPercent());
     c.setDiscountAmount(l.getDiscountAmount());
     c.setTaxPercent(l.getTaxPercent());
+    c.setTaxCode(l.getTaxCode());
+    c.setItcEligibility(l.getItcEligibility());
     c.setTaxAmount(l.getTaxAmount());
     c.setAmount(l.getAmount());
     c.setSortOrder(l.getSortOrder());
@@ -964,12 +1005,13 @@ public class VyaparService {
 
   @Transactional(readOnly = true)
   public List<PaymentResponse> getPayments(String direction, Long projectId) {
+    ProjectScope scope = projectScope.resolve(projectId);
     List<PaymentEntity> list =
         (direction == null || direction.isBlank())
             ? paymentRepository.findAllByOrderByIdDesc()
             : paymentRepository.findAllByDirectionOrderByIdDesc(direction.toUpperCase());
     List<PaymentEntity> scoped =
-        list.stream().filter(p -> inScope(p.getProjectId(), projectId)).toList();
+        list.stream().filter(p -> scope.matches(p.getProjectId())).toList();
     // One links query for the whole page rather than one per payment.
     Map<Long, BigDecimal> linked = linkedAmountsByPayment(scoped.stream().map(PaymentEntity::getId).toList());
     return scoped.stream().map(p -> toPayment(p, linked, null)).toList();
@@ -978,6 +1020,8 @@ public class VyaparService {
   @Transactional
   public PaymentResponse createPayment(PaymentRequest r) {
     PaymentEntity p = new PaymentEntity();
+    projectScope.assertCanWrite(r.projectId());
+    RequestProjectContext.set(r.projectId());
     p.setBankAccountId(r.bankAccountId());
     p.setProjectId(r.projectId());
     p.setDirection(r.direction() == null ? "IN" : r.direction().toUpperCase());
@@ -1085,7 +1129,8 @@ public class VyaparService {
 
   @Transactional(readOnly = true)
   public DashboardSummary getDashboard(Long projectId) {
-    Map<Long, BigDecimal> balances = balancesByParty(projectId);
+    ProjectScope scope = projectScope.resolve(projectId);
+    Map<Long, BigDecimal> balances = balancesByParty(scope);
     BigDecimal receivable = BigDecimal.ZERO;
     BigDecimal payable = BigDecimal.ZERO;
     long recvParties = 0;
@@ -1113,7 +1158,7 @@ public class VyaparService {
     for (int d = 1; d <= daysInMonth; d++) daily.put(String.format("%s-%02d", monthPrefix, d), BigDecimal.ZERO);
 
     for (InvoiceEntity inv : invoiceRepository.findAll()) {
-      if (!inScope(inv.getProjectId(), projectId)) continue;
+      if (!scope.matches(inv.getProjectId())) continue;
       if ("SALE".equals(inv.getDocType())) {
         totalSale = totalSale.add(nz(inv.getTotal()));
         String date = inv.getInvoiceDate();
@@ -1128,7 +1173,7 @@ public class VyaparService {
 
     BigDecimal cashIn = BigDecimal.ZERO;
     for (PaymentEntity p : paymentRepository.findAll()) {
-      if (!inScope(p.getProjectId(), projectId)) continue;
+      if (!scope.matches(p.getProjectId())) continue;
       cashIn = "IN".equals(p.getDirection()) ? cashIn.add(nz(p.getAmount())) : cashIn.subtract(nz(p.getAmount()));
     }
 
@@ -1147,9 +1192,164 @@ public class VyaparService {
 
   // ================= helpers =================
 
-  /** A null filter means "all projects"; otherwise the record must belong to that project. */
-  private static boolean inScope(Long recordProjectId, Long filter) {
-    return filter == null || filter.equals(recordProjectId);
+  // ================= Project rollups =================
+
+  /**
+   * One project's money, computed from its documents. This is what the Project workspace's
+   * Dashboard shows in place of the old hand-typed {@code in_amount}/{@code out_amount} columns.
+   *
+   * <p>Deliberately indexed by project rather than scanning all invoices: a project view must not
+   * get slower as the rest of the books grow.
+   */
+  @Transactional(readOnly = true)
+  public ProjectFinance projectFinance(Long projectId) {
+    projectScope.resolve(projectId); // access check — throws if the caller isn't on this project
+
+    BigDecimal billed = BigDecimal.ZERO;
+    BigDecimal received = BigDecimal.ZERO;
+    BigDecimal spent = BigDecimal.ZERO;
+    BigDecimal paidOut = BigDecimal.ZERO;
+    long saleCount = 0;
+    long purchaseCount = 0;
+    java.util.Set<Long> parties = new java.util.LinkedHashSet<>();
+
+    for (InvoiceEntity inv : invoiceRepository.findByProjectIdOrderByIdDesc(projectId)) {
+      if (inv.isCancelled()) continue;
+      if (inv.getParty() != null) parties.add(inv.getParty().getId());
+      switch (inv.getDocType()) {
+        case "SALE" -> {
+          billed = billed.add(nz(inv.getTotal()));
+          received = received.add(nz(inv.getPaidAmount()));
+          saleCount++;
+        }
+        case "PURCHASE" -> {
+          spent = spent.add(nz(inv.getTotal()));
+          paidOut = paidOut.add(nz(inv.getPaidAmount()));
+          purchaseCount++;
+        }
+        // Returns reverse the original document, so they net off the same buckets.
+        case "SALE_RETURN" -> {
+          billed = billed.subtract(nz(inv.getTotal()));
+          received = received.subtract(nz(inv.getPaidAmount()));
+        }
+        case "PURCHASE_RETURN" -> {
+          spent = spent.subtract(nz(inv.getTotal()));
+          paidOut = paidOut.subtract(nz(inv.getPaidAmount()));
+        }
+        default -> { /* estimates, orders and challans aren't money yet */ }
+      }
+    }
+
+    // Standalone receipts/payments (advances not tied to a document) still move project cash.
+    long paymentCount = 0;
+    for (PaymentEntity p : paymentRepository.findByProjectIdOrderByIdDesc(projectId)) {
+      if (p.getParty() != null) parties.add(p.getParty().getId());
+      paymentCount++;
+    }
+
+    return new ProjectFinance(
+        money(billed),
+        money(received),
+        money(billed.subtract(received)),
+        money(spent),
+        money(spent.subtract(paidOut)),
+        money(paidOut),
+        saleCount,
+        purchaseCount,
+        paymentCount,
+        parties.size());
+  }
+
+  /**
+   * Finance for every project the caller can see, in one pass over the books.
+   *
+   * <p>The projects <em>list</em> needs a money column per row. Calling {@link #projectFinance} per
+   * project would be one query set per row; this walks the documents once and buckets them, which
+   * is the same cost as the Vyapar dashboard already pays. Documents with no project are skipped —
+   * they belong to no row.
+   */
+  @Transactional(readOnly = true)
+  public Map<Long, ProjectFinance> financeByProject() {
+    ProjectScope scope = projectScope.resolve(null);
+    Map<Long, Bucket> buckets = new LinkedHashMap<>();
+
+    for (InvoiceEntity inv : invoiceRepository.findAll()) {
+      Long pid = inv.getProjectId();
+      if (pid == null || inv.isCancelled() || !scope.matches(pid)) continue;
+      Bucket b = buckets.computeIfAbsent(pid, k -> new Bucket());
+      if (inv.getParty() != null) b.parties.add(inv.getParty().getId());
+      BigDecimal total = nz(inv.getTotal());
+      BigDecimal paid = nz(inv.getPaidAmount());
+      switch (inv.getDocType()) {
+        case "SALE" -> { b.billed = b.billed.add(total); b.received = b.received.add(paid); b.sales++; }
+        case "PURCHASE" -> { b.spent = b.spent.add(total); b.paidOut = b.paidOut.add(paid); b.purchases++; }
+        case "SALE_RETURN" -> { b.billed = b.billed.subtract(total); b.received = b.received.subtract(paid); }
+        case "PURCHASE_RETURN" -> { b.spent = b.spent.subtract(total); b.paidOut = b.paidOut.subtract(paid); }
+        default -> { /* not money yet */ }
+      }
+    }
+
+    for (PaymentEntity p : paymentRepository.findAll()) {
+      Long pid = p.getProjectId();
+      if (pid == null || !scope.matches(pid)) continue;
+      Bucket b = buckets.computeIfAbsent(pid, k -> new Bucket());
+      if (p.getParty() != null) b.parties.add(p.getParty().getId());
+      b.payments++;
+    }
+
+    Map<Long, ProjectFinance> out = new LinkedHashMap<>();
+    buckets.forEach((pid, b) -> out.put(pid, new ProjectFinance(
+        money(b.billed),
+        money(b.received),
+        money(b.billed.subtract(b.received)),
+        money(b.spent),
+        money(b.spent.subtract(b.paidOut)),
+        money(b.paidOut),
+        b.sales, b.purchases, b.payments, b.parties.size())));
+    return out;
+  }
+
+  /** Mutable accumulator for {@link #financeByProject}. */
+  private static final class Bucket {
+    BigDecimal billed = BigDecimal.ZERO;
+    BigDecimal received = BigDecimal.ZERO;
+    BigDecimal spent = BigDecimal.ZERO;
+    BigDecimal paidOut = BigDecimal.ZERO;
+    long sales;
+    long purchases;
+    long payments;
+    final java.util.Set<Long> parties = new java.util.LinkedHashSet<>();
+  }
+
+  /** Material movement on one project — see {@link ProjectMaterialRow}. */
+  @Transactional(readOnly = true)
+  public List<ProjectMaterialRow> projectMaterials(Long projectId) {
+    projectScope.resolve(projectId);
+    List<ProjectMaterialRow> rows = new ArrayList<>();
+    for (Object[] r : invoiceRepository.findProjectMaterialRows(projectId)) {
+      String docType = (String) r[1];
+      rows.add(new ProjectMaterialRow(
+          (Long) r[0],
+          (String) r[4],
+          (String) r[5],
+          movementOf(docType),
+          nz((BigDecimal) r[6]),
+          (String) r[7],
+          money((BigDecimal) r[8]),
+          money((BigDecimal) r[9]),
+          r[3] == null ? "—" : (String) r[3],
+          (String) r[2]));
+    }
+    return rows;
+  }
+
+  /** How a document type moves stock on a site: onto it, off it, or not yet. */
+  private static String movementOf(String docType) {
+    return switch (docType) {
+      case "PURCHASE", "SALE_RETURN" -> "IN";
+      case "SALE", "PURCHASE_RETURN", "DELIVERY_CHALLAN" -> "OUT";
+      default -> "PLANNED"; // estimates and orders haven't moved anything yet
+    };
   }
 
   private PartyEntity requireParty(Long id) {

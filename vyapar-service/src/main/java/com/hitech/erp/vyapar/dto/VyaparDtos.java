@@ -138,6 +138,10 @@ public final class VyaparDtos {
       BigDecimal discountPercent,
       BigDecimal discountAmount,
       BigDecimal taxPercent,
+      /** The GST code picked in the Tax column: "GST@18%", "IGST@18%", "EXEMPTED", "NONE". */
+      String taxCode,
+      /** Purchase lines only — the input-tax-credit claim. */
+      String itcEligibility,
       BigDecimal taxAmount,
       BigDecimal amount) {}
 
@@ -171,6 +175,11 @@ public final class VyaparDtos {
       String status,
       boolean cancelled,
       String notes,
+      /** Vyapar's ADD DESCRIPTION / ADD IMAGE / ADD DOCUMENT attachments. */
+      String description,
+      String imageDataUrl,
+      String documentName,
+      String documentDataUrl,
       Long bankAccountId,
       Long projectId,
       List<InvoiceLineDto> lines) {}
@@ -184,7 +193,9 @@ public final class VyaparDtos {
       BigDecimal rate,
       BigDecimal discountPercent,
       BigDecimal discountAmount,
-      BigDecimal taxPercent) {}
+      BigDecimal taxPercent,
+      String taxCode,
+      String itcEligibility) {}
 
   public record InvoiceRequest(
       String docType,
@@ -205,6 +216,10 @@ public final class VyaparDtos {
       String terms,
       BigDecimal roundOff,
       String notes,
+      String description,
+      String imageDataUrl,
+      String documentName,
+      String documentDataUrl,
       Long bankAccountId,
       Long projectId,
       List<InvoiceLineRequest> lines) {}
@@ -296,4 +311,45 @@ public final class VyaparDtos {
       BigDecimal stockValue,
       long lowStockCount,
       List<DashboardPoint> salesTrend) {}
+
+  // ---- Project rollups (feed the Project workspace, not the Vyapar dashboard) ----
+
+  /**
+   * One project's money, derived from the documents filed against it. Every figure here used to be
+   * a hand-typed column on {@code projects} — these are computed, so they cannot drift.
+   */
+  public record ProjectFinance(
+      /** Sales invoiced to the client on this project. */
+      BigDecimal billed,
+      /** Cash actually received against those sales. */
+      BigDecimal received,
+      /** Still owed by the client: billed − received. */
+      BigDecimal outstanding,
+      /** Purchases + expenses booked to this project. */
+      BigDecimal spent,
+      /** Still owed to suppliers on this project. */
+      BigDecimal payable,
+      /** Money out actually paid. */
+      BigDecimal paidOut,
+      long saleCount,
+      long purchaseCount,
+      long paymentCount,
+      long partyCount) {}
+
+  /**
+   * One material movement on a project: a line item off a project-scoped document. IN = purchased
+   * onto the site, OUT = billed/issued off it. Materials themselves stay global master data — only
+   * the movement is project-scoped, which is what a site manager actually needs to see.
+   */
+  public record ProjectMaterialRow(
+      Long invoiceId,
+      String date,
+      String itemName,
+      String movement,
+      BigDecimal quantity,
+      String unit,
+      BigDecimal rate,
+      BigDecimal amount,
+      String partyName,
+      String docNo) {}
 }

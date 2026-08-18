@@ -50,6 +50,20 @@ public class InvoiceLineEntity extends BaseEntity {
   @Column(name = "tax_percent", nullable = false, precision = 6, scale = 2)
   private BigDecimal taxPercent = BigDecimal.ZERO;
 
+  /**
+   * The GST code chosen in the Tax column — "GST@18%", "IGST@18%", "EXEMPTED", "NONE".
+   *
+   * The percent alone can't distinguish an intra-state GST@18% (CGST 9 + SGST 9) from an
+   * inter-state IGST@18%, nor an exempt supply from an untaxed one, and GST returns report each
+   * differently. The rate stays in {@link #taxPercent}; this records which levy it was.
+   */
+  @Column(name = "tax_code", length = 20)
+  private String taxCode;
+
+  /** Purchase lines only: the input-tax-credit claim Vyapar asks for beneath the rate. */
+  @Column(name = "itc_eligibility", length = 40)
+  private String itcEligibility;
+
   @Column(name = "tax_amount", nullable = false, precision = 16, scale = 2)
   private BigDecimal taxAmount = BigDecimal.ZERO;
 

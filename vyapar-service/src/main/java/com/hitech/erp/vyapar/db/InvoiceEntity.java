@@ -105,6 +105,24 @@ public class InvoiceEntity extends BaseEntity {
   @Column(length = 1000)
   private String notes;
 
+  /** Vyapar's ADD DESCRIPTION — free text about the document, printed with it. */
+  @Column(columnDefinition = "text")
+  private String description;
+
+  /**
+   * ADD IMAGE / ADD DOCUMENT. Both are held inline as data URLs rather than in object storage —
+   * the same approach the firm logo and item photos already take, so this ships without a
+   * file-storage service.
+   */
+  @Column(name = "image_data_url", columnDefinition = "text")
+  private String imageDataUrl;
+
+  @Column(name = "document_name", length = 255)
+  private String documentName;
+
+  @Column(name = "document_data_url", columnDefinition = "text")
+  private String documentDataUrl;
+
   @Column(name = "created_by")
   private Long createdBy;
 
