@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -50,6 +51,10 @@ public class DemoDataRunner implements CommandLineRunner {
   private static final String OFFICE_MGR_ROLE = "Office Manager";
   private static final String HR_ROLE = "HR Executive";
   private static final String DEMO_PASSWORD = "Test@1234";
+
+  /** Off by default — see the note in {@link #run}. Flip on only for a throwaway test database. */
+  @Value("${hitech.demo-data.projects:false}")
+  private boolean seedDemoProjects;
 
   private static final Set<String> PM_PERMS =
       Set.of(
@@ -158,6 +163,16 @@ public class DemoDataRunner implements CommandLineRunner {
     rolesByName.put(HR_ROLE, hrRole);
 
     Map<String, AppUserEntity> byShort = ensureUsers(rolesByName);
+
+    // The demo *projects* are off by default. They were being recreated on every boot, so deleting
+    // them from the client's books only ever lasted until the next restart — and once real work is
+    // in the system, twelve "Demo · Project" entries in the project picker are noise, not a demo.
+    // Roles and users above still seed: the role hierarchy is live behaviour the app depends on,
+    // not sample data. Set `hitech.demo-data.projects=true` to get the sample org back for testing.
+    if (!seedDemoProjects) {
+      log.info("DemoDataRunner: demo projects disabled (hitech.demo-data.projects=false)");
+      return;
+    }
     Map<String, ProjectEntity> demoProjects = ensureDemoProjects();
     ensureMemberships(demoProjects, byShort);
     ensureTasks(demoProjects, byShort);
