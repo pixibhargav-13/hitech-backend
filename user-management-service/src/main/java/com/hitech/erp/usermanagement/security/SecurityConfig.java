@@ -26,10 +26,19 @@ public class SecurityConfig {
 
   private static final String[] PUBLIC_ENDPOINTS = {
     "/api/v1/auth/login",
+    // Supplier-facing quote links. Unauthenticated by design: the supplier has no login here, the
+    // long random token in the URL is the credential, and each token opens exactly one supplier's
+    // own quote on one enquiry.
+    "/api/v1/public/**",
     "/api/v1/auth/refresh",
     "/swagger-ui/**",
     "/v3/api-docs/**",
-    "/actuator/health"
+    "/actuator/health",
+    // Spring re-dispatches a handled exception through /error. Left unpermitted, that second
+    // dispatch has no authentication on it and the entry point turns every 404 and 422 in the whole
+    // API into a bodiless 401 - so a supplier told "your quote is already submitted" instead sees
+    // a login error. This lets the message the handler wrote actually reach the caller.
+    "/error"
   };
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;

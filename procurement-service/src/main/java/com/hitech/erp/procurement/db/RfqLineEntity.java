@@ -32,6 +32,18 @@ public class RfqLineEntity extends BaseEntity {
   @Column(length = 30)
   private String unit;
 
+  /** Suppliers need it to quote tax correctly. */
+  @Column(name = "hsn_code", length = 20)
+  private String hsnCode;
+
+  /** The brand/spec sub-line under the item name, e.g. "Kirloskar, IVI, GM". */
+  @Column(length = 500)
+  private String specification;
+
+  /** Overrides the document's delivery date when one line is wanted earlier than the rest. */
+  @Column(name = "delivery_date", length = 10)
+  private String deliveryDate;
+
   @Column(nullable = false, precision = 16, scale = 3)
   private BigDecimal quantity = BigDecimal.ONE;
 

@@ -45,6 +45,48 @@ public class RfqEntity extends BaseEntity {
   @Column(name = "due_by", length = 10)
   private String dueBy;
 
+  /** ITEM = tax per line, BILL = one rate on the whole bill. */
+  @Column(name = "tax_type", nullable = false, length = 10)
+  private String taxType = "ITEM";
+
+  @Column(name = "bidding_start_date", length = 10)
+  private String biddingStartDate;
+
+  @Column(name = "bidding_end_date", length = 10)
+  private String biddingEndDate;
+
+  /** When the whole enquiry is wanted on site; a line may override it. */
+  @Column(name = "delivery_date", length = 10)
+  private String deliveryDate;
+
+  @Column(columnDefinition = "text")
+  private String terms;
+
+  /**
+   * Held on the document rather than looked up live: an address printed on an enquiry sent in
+   * August must still read the same next year, even if the firm moves.
+   */
+  @Column(name = "bill_to_name", length = 200)
+  private String billToName;
+
+  @Column(name = "bill_to_address", columnDefinition = "text")
+  private String billToAddress;
+
+  @Column(name = "bill_to_gstin", length = 20)
+  private String billToGstin;
+
+  @Column(name = "ship_to_name", length = 200)
+  private String shipToName;
+
+  @Column(name = "ship_to_address", columnDefinition = "text")
+  private String shipToAddress;
+
+  @Column(name = "ship_to_gstin", length = 20)
+  private String shipToGstin;
+
+  @Column(name = "ship_same_as_bill", nullable = false)
+  private boolean shipSameAsBill = false;
+
   @Column(columnDefinition = "text")
   private String notes;
 
@@ -59,6 +101,11 @@ public class RfqEntity extends BaseEntity {
   @OrderBy("id ASC")
   private List<QuoteEntity> quotes = new ArrayList<>();
 
+  /** Who was invited — not the same as who replied. */
+  @OneToMany(mappedBy = "rfq", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("id ASC")
+  private List<RfqSupplierEntity> suppliers = new ArrayList<>();
+
   public void addLine(RfqLineEntity l) {
     l.setRfq(this);
     lines.add(l);
@@ -67,5 +114,10 @@ public class RfqEntity extends BaseEntity {
   public void addQuote(QuoteEntity q) {
     q.setRfq(this);
     quotes.add(q);
+  }
+
+  public void addSupplier(RfqSupplierEntity s) {
+    s.setRfq(this);
+    suppliers.add(s);
   }
 }

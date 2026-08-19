@@ -4,6 +4,7 @@ import com.hitech.erp.procurement.dto.ProcurementDtos.AwardRequest;
 import com.hitech.erp.procurement.dto.ProcurementDtos.QuoteRequest;
 import com.hitech.erp.procurement.dto.ProcurementDtos.RfqRequest;
 import com.hitech.erp.procurement.dto.ProcurementDtos.RfqResponse;
+import com.hitech.erp.procurement.dto.ProcurementDtos.SendRequest;
 import com.hitech.erp.procurement.service.RfqService;
 import com.hitech.erp.usermanagement.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -79,6 +80,26 @@ public class RfqController {
   public ResponseEntity<RfqResponse> deleteQuote(
       @PathVariable("id") Long id, @PathVariable("quoteId") Long quoteId) {
     return ResponseEntity.ok(service.deleteQuote(id, quoteId));
+  }
+
+  // ---- Sending ----
+
+  /**
+   * Mint each supplier's quote link and stamp the enquiry sent. Resending is safe: a supplier who
+   * already has a link keeps it, so a second send does not break one already sitting in a chat.
+   */
+  @PutMapping("/{id}/send")
+  @PreAuthorize("hasAuthority('PROCUREMENT:EDIT')")
+  public ResponseEntity<RfqResponse> send(@PathVariable("id") Long id, @RequestBody(required = false) SendRequest r) {
+    return ResponseEntity.ok(service.send(id, r));
+  }
+
+  /** Reopen a supplier's link so they can revise. Our decision to make, not theirs. */
+  @PutMapping("/{id}/quotes/{quoteId}/unlock")
+  @PreAuthorize("hasAuthority('PROCUREMENT:EDIT')")
+  public ResponseEntity<RfqResponse> unlock(
+      @PathVariable("id") Long id, @PathVariable("quoteId") Long quoteId) {
+    return ResponseEntity.ok(service.unlockQuote(id, quoteId));
   }
 
   // ---- Award ----

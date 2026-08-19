@@ -53,6 +53,20 @@ public class QuoteEntity extends BaseEntity {
   @Column(length = 500)
   private String note;
 
+  /**
+   * BUYER = we keyed it in, VENDOR = the supplier submitted it through their link. A price the
+   * supplier entered themselves is the one that can be pointed at in a disagreement.
+   */
+  @Column(nullable = false, length = 20)
+  private String source = "BUYER";
+
+  /** A submitted quote locks, so it cannot be revised silently once the comparison has been read. */
+  @Column(nullable = false)
+  private boolean locked = false;
+
+  @Column(name = "submitted_at")
+  private java.time.LocalDateTime submittedAt;
+
   @OneToMany(mappedBy = "quote", cascade = CascadeType.ALL, orphanRemoval = true)
   private List<QuoteLineEntity> lines = new ArrayList<>();
 
