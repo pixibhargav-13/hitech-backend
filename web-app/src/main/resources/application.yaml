@@ -16,7 +16,15 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    # Schema only by default. Sample data lives in db/seed and is a separate location, switched on
+    # per environment with FLYWAY_LOCATIONS — so a demo database can be filled without the risk of
+    # sample rows ever riding into an environment that did not ask for them:
+    #   FLYWAY_LOCATIONS=classpath:db/migration,classpath:db/seed
+    locations: ${FLYWAY_LOCATIONS:classpath:db/migration}
+    # Once the seed location is switched off again, its applied versions are still in the history
+    # table with no file behind them. Without this, Flyway treats that as a corrupted schema and
+    # refuses to start — which would turn "stop seeding" into "the app will not boot".
+    ignore-migration-patterns: "*:missing"
 
 # Self-issued JWT config - see JwtTokenProvider. Override JWT_SECRET in every real environment.
 app:
