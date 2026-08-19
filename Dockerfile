@@ -11,6 +11,7 @@ COPY user-management-service/pom.xml user-management-service/
 COPY project-service/pom.xml project-service/
 COPY audit-service/pom.xml audit-service/
 COPY vyapar-service/pom.xml vyapar-service/
+COPY procurement-service/pom.xml procurement-service/
 COPY payroll-service/pom.xml payroll-service/
 COPY tender-service/pom.xml tender-service/
 COPY web-app/pom.xml web-app/
@@ -22,6 +23,7 @@ COPY user-management-service/src user-management-service/src
 COPY project-service/src project-service/src
 COPY audit-service/src audit-service/src
 COPY vyapar-service/src vyapar-service/src
+COPY procurement-service/src procurement-service/src
 COPY payroll-service/src payroll-service/src
 COPY tender-service/src tender-service/src
 COPY web-app/src web-app/src
